@@ -707,44 +707,65 @@
   }
   function fmt1(n){ return n.toLocaleString('de-DE', {minimumFractionDigits:1, maximumFractionDigits:1}); }
 
-  // ---------- geo-reference (two-point calibration) ----------
-  // The lake's NW and SE tips, each pinned to both a world-space coordinate
-  // (the reconstructed shoreline's own extremities) and a real lat/lon
-  // (read off Google Maps). Two points let us solve for rotation and scale,
-  // not just position — a single anchor point can't detect orientation
-  // error at all, which is what made the original one-point version drift
-  // once you got any distance from its anchor.
-  var LAT0 = 53.66016666666667, LON0 = 11.29875; // NW tip (kept as LAT0/LON0 name for compatibility)
-  var ANCHOR_A_WORLD = { x: -2064.4085, z: -1952.544 };
-  var ANCHOR_B_GEO = { lat: 53.6245, lon: 11.360111111111111 }; // SE tip
-  var ANCHOR_B_WORLD = { x: 2064.4085, z: 1972.883 };
+  // ---------- geo-reference (three-point affine calibration) ----------
+  // Three real-world reference points (read off Google Maps), each paired
+  // with the matching point in our reconstructed shoreline: the NW tip, the
+  // SE tip, and a shore point roughly in the middle. Three points let us
+  // fit a full affine transform — catches an east-west vs north-south scale
+  // mismatch or shear that a two-point (rotation + uniform scale only) fit
+  // can't detect, which is what was still leaving a visible offset before.
+  var LAT0 = 53.659666666666666, LON0 = 11.296861111111111; // NW tip (reference origin)
+  var GEO_B = { lat: 53.62588888888889, lon: 11.360944444444444 }; // SE tip
+  var GEO_C = { lat: 53.64694444444444, lon: 11.30913888888889 };  // mid shore point
+  var WORLD_A = { x: -2064.4085, z: -1952.544 };
+  var WORLD_B = { x: 2064.4085,  z: 1972.883  };
+  var WORLD_C = { x: -1271.1875, z: -528.814  };
 
   var M_PER_DEG_LAT = 111320;
-  var LAT_REF = (LAT0 + ANCHOR_B_GEO.lat) / 2;
+  var LAT_REF = (LAT0 + GEO_B.lat) / 2;
   var M_PER_DEG_LON = 111320 * Math.cos(LAT_REF * Math.PI/180);
 
-  function geoToEN(lat, lon){ // local east/north meters, relative to anchor A (the NW tip)
+  function geoToEN(lat, lon){ // local east/north meters, relative to the NW tip
     return { e: (lon - LON0) * M_PER_DEG_LON, n: (lat - LAT0) * M_PER_DEG_LAT };
   }
-  var _gB = geoToEN(ANCHOR_B_GEO.lat, ANCHOR_B_GEO.lon);
-  var _wBX = ANCHOR_B_WORLD.x - ANCHOR_A_WORLD.x;
-  var _wBY = -(ANCHOR_B_WORLD.z - ANCHOR_A_WORLD.z); // world Y = -z, so (x,Y) behaves like (east,north)
-  var GEO_SCALE = Math.hypot(_gB.e, _gB.n) / Math.hypot(_wBX, _wBY); // real meters per world unit
-  var GEO_ROT = Math.atan2(_gB.n, _gB.e) - Math.atan2(_wBY, _wBX);   // world-frame rotation vs true north
+  var _EA = { e: 0, n: 0 };
+  var _EB = geoToEN(GEO_B.lat, GEO_B.lon);
+  var _EC = geoToEN(GEO_C.lat, GEO_C.lon);
+
+  function _solveAffineRow(rows, rhs){ // Cramer's rule on the 3x3 system
+    function det3(m){
+      return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])
+           - m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])
+           + m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
+    }
+    var D = det3(rows), sol = [];
+    for (var col = 0; col < 3; col++){
+      var m2 = rows.map(function(r){ return r.slice(); });
+      for (var i = 0; i < 3; i++) m2[i][col] = rhs[i];
+      sol.push(det3(m2)/D);
+    }
+    return sol;
+  }
+  var _affineRows = [
+    [WORLD_A.x, WORLD_A.z, 1],
+    [WORLD_B.x, WORLD_B.z, 1],
+    [WORLD_C.x, WORLD_C.z, 1]
+  ];
+  // [e,n] = [[AA,AB],[AC,AD]] * [x,z] + [ATX,ATY]
+  var _esol = _solveAffineRow(_affineRows, [_EA.e, _EB.e, _EC.e]);
+  var _nsol = _solveAffineRow(_affineRows, [_EA.n, _EB.n, _EC.n]);
+  var AA = _esol[0], AB = _esol[1], ATX = _esol[2];
+  var AC = _nsol[0], AD = _nsol[1], ATY = _nsol[2];
+  var ADET = AA*AD - AB*AC;
 
   function geoToWorld(lat, lon){
     var en = geoToEN(lat, lon);
-    var cos = Math.cos(-GEO_ROT), sin = Math.sin(-GEO_ROT);
-    var X = (en.e*cos - en.n*sin) / GEO_SCALE;
-    var Y = (en.e*sin + en.n*cos) / GEO_SCALE;
-    return { x: ANCHOR_A_WORLD.x + X, z: ANCHOR_A_WORLD.z - Y };
+    var ex = en.e - ATX, ny = en.n - ATY;
+    return { x: (AD*ex - AB*ny) / ADET, z: (-AC*ex + AA*ny) / ADET };
   }
   function worldToGeo(x, z){
-    var X = x - ANCHOR_A_WORLD.x;
-    var Y = -(z - ANCHOR_A_WORLD.z);
-    var cos = Math.cos(GEO_ROT), sin = Math.sin(GEO_ROT);
-    var e = (X*cos - Y*sin) * GEO_SCALE;
-    var n = (X*sin + Y*cos) * GEO_SCALE;
+    var e = AA*x + AB*z + ATX;
+    var n = AC*x + AD*z + ATY;
     return { lat: LAT0 + n/M_PER_DEG_LAT, lon: LON0 + e/M_PER_DEG_LON };
   }
 
@@ -1435,8 +1456,10 @@
     else leafletMap.setView([LAT0, LON0], 13);
     L.circleMarker([LAT0, LON0], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
       .addTo(leafletMap).bindTooltip('Referenzpunkt (NW-Spitze)');
-    L.circleMarker([ANCHOR_B_GEO.lat, ANCHOR_B_GEO.lon], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
+    L.circleMarker([GEO_B.lat, GEO_B.lon], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
       .addTo(leafletMap).bindTooltip('Referenzpunkt (SO-Spitze)');
+    L.circleMarker([GEO_C.lat, GEO_C.lon], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
+      .addTo(leafletMap).bindTooltip('Referenzpunkt (Mitte)');
   }
   function updateMapGpsMarker(w, acc){
     if (!leafletMap) return;
