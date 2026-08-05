@@ -9,9 +9,9 @@
 //   x-pin: <the shared PIN>            (our app-level gate)
 //
 // Routes:
-//   GET    /markers-api        -> { markers: [...] }
-//   POST   /markers-api        -> body { type, subtype, x, z, idx } -> { marker }
-//   DELETE /markers-api/<id>   -> { ok: true }
+//   GET    /markers-api?lake_id=<id>  -> { markers: [...] }  (markers for that lake only)
+//   POST   /markers-api               -> body { type, subtype, x, z, idx, lake_id } -> { marker }
+//   DELETE /markers-api/<id>          -> { ok: true }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -50,10 +50,10 @@ Deno.serve(async (req) => {
   const id = parts.length > 1 ? parts[parts.length - 1] : null;
 
   if (req.method === "GET") {
-    const { data, error } = await supabase
-      .from("markers")
-      .select("*")
-      .order("created_at", { ascending: true });
+    const lakeId = url.searchParams.get("lake_id");
+    let query = supabase.from("markers").select("*").order("created_at", { ascending: true });
+    if (lakeId) query = query.eq("lake_id", lakeId);
+    const { data, error } = await query;
     if (error) return json({ error: error.message }, 500);
     return json({ markers: data });
   }
@@ -66,7 +66,8 @@ Deno.serve(async (req) => {
       (body.subtype != null && !VALID_SUBTYPES.includes(body.subtype)) ||
       typeof body.x !== "number" ||
       typeof body.z !== "number" ||
-      typeof body.idx !== "number"
+      typeof body.idx !== "number" ||
+      (body.lake_id != null && typeof body.lake_id !== "string")
     ) {
       return json({ error: "Ungültiger Marker" }, 400);
     }
@@ -78,6 +79,7 @@ Deno.serve(async (req) => {
         x: body.x,
         z: body.z,
         idx: body.idx,
+        lake_id: body.lake_id ?? "neumuehler",
       })
       .select()
       .single();

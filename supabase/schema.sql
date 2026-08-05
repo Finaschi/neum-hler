@@ -10,8 +10,16 @@ create table if not exists public.markers (
   x double precision not null,
   z double precision not null,
   idx integer not null,
+  lake_id text not null default 'neumuehler',
   created_at timestamptz not null default now()
 );
+
+-- Multi-lake support: run this against an existing database that predates
+-- the lake_id column (safe to re-run, only adds the column if missing).
+-- All markers created before multi-lake support belong to Neumühler See,
+-- hence the default.
+alter table public.markers add column if not exists lake_id text not null default 'neumuehler';
+create index if not exists markers_lake_id_idx on public.markers (lake_id);
 
 -- RLS is enabled with NO policies attached on purpose: the anon/public API
 -- key therefore has zero direct access to this table. The only way in is
