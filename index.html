@@ -436,15 +436,23 @@
   }
   .marker-del:hover{ background:rgba(232,136,136,0.25); color:#e88888; }
 
-  #markerModal, #pinModal, #mapModal{
+  #markerModal, #pinModal, #mapModal, #markerDetailModal{
     position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
     background:rgba(2,6,9,0); pointer-events:none; opacity:0;
     transition:opacity .18s ease, background .18s ease;
     z-index:30;
   }
-  #markerModal.show, #pinModal.show, #mapModal.show{ background:rgba(2,6,9,0.55); pointer-events:auto; opacity:1; }
-  #markerModal .panel, #pinModal .panel, #mapModal .panel{ pointer-events:none; }
-  #markerModal.show .panel, #pinModal.show .panel, #mapModal.show .panel{ pointer-events:auto; }
+  #markerModal.show, #pinModal.show, #mapModal.show, #markerDetailModal.show{ background:rgba(2,6,9,0.55); pointer-events:auto; opacity:1; }
+  #markerModal .panel, #pinModal .panel, #mapModal .panel, #markerDetailModal .panel{ pointer-events:none; }
+  #markerModal.show .panel, #pinModal.show .panel, #mapModal.show .panel, #markerDetailModal.show .panel{ pointer-events:auto; }
+  .marker-detail-head{ display:flex; align-items:center; gap:9px; margin-bottom:4px; }
+  .marker-detail-head h2{ margin:0; }
+  .marker-detail-dot{ width:11px; height:11px; border-radius:50%; flex:none; }
+  .marker-detail-desc{
+    font-size:13px; color:var(--ink); line-height:1.5;
+    margin-top:10px; white-space:pre-wrap; word-break:break-word;
+  }
+  .marker-detail-meta{ font-size:11px; color:var(--ink-dim); margin-top:10px; }
   .marker-modal{
     width:min(88vw,340px);
     padding:20px 20px 18px;
@@ -557,7 +565,8 @@
     position:relative;
     width:28px; height:36px;
     transform:translate(-50%,-100%);
-    pointer-events:none;
+    pointer-events:auto;
+    cursor:pointer;
     filter:drop-shadow(0 3px 5px rgba(0,0,0,0.5));
   }
   .map-pin .pin-body{
@@ -773,6 +782,21 @@
     <div class="marker-actions">
       <button class="ctrl" id="markerCancel">Abbrechen</button>
       <button class="ctrl primary" id="markerSave" disabled>Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div id="markerDetailModal">
+  <div class="panel marker-modal">
+    <div class="marker-detail-head">
+      <span class="marker-detail-dot" id="detailDot"></span>
+      <h2 id="detailLabel">Marker</h2>
+    </div>
+    <div class="marker-detail-desc" id="detailDesc" hidden></div>
+    <div class="marker-detail-meta" id="detailMeta" hidden></div>
+    <div class="marker-actions">
+      <button class="ctrl" id="markerDetailDelete">Löschen</button>
+      <button class="ctrl primary" id="markerDetailClose">Schließen</button>
     </div>
   </div>
 </div>
@@ -1243,6 +1267,10 @@ function initApp(DATA){
   function markerElevY(m){ var e = baseZ[m.idx]; return e<0 ? e*EXAG : e; }
   function buildMarkerMesh(m){
     var el = makePinElement('map-pin', markerColorHex(m), pinIconFor(m), true);
+    el.addEventListener('click', function(e){
+      e.stopPropagation();
+      openMarkerDetail(m);
+    });
     var obj = new THREE.CSS2DObject(el);
     obj.position.set(m.x, markerElevY(m), m.z);
     obj.userData.markerId = m.id;
@@ -1325,13 +1353,14 @@ function initApp(DATA){
       }
       var desc = description || null;
       var tempId = 'tmp_' + Date.now() + Math.floor(Math.random()*1000);
-      var m = { id:tempId, type:type, subtype:subtype||null, x:worldX, z:worldZ, idx:idx, description:desc };
+      var m = { id:tempId, type:type, subtype:subtype||null, x:worldX, z:worldZ, idx:idx, description:desc, created_at:new Date().toISOString() };
       markers.push(m);
       markerGroup.add(buildMarkerMesh(m));
       renderMarkerList();
       setSyncStatus('', 'Speichere …');
       apiRequest('POST', '', { type:type, subtype:subtype||null, x:worldX, z:worldZ, idx:idx, lake_id:DATA.id, description:desc }, pin).then(function(data){
         m.id = data.marker.id;
+        if (data.marker.created_at) m.created_at = data.marker.created_at;
         var obj = markerGroup.children.find(function(g){ return g.userData.markerId === tempId; });
         if (obj) obj.userData.markerId = m.id;
         cacheMarkersLocally();
@@ -1492,6 +1521,52 @@ function initApp(DATA){
       if (e.target === markerModal) closeMarkerModal();
     });
   }
+
+  // ---------- marker detail (tap a pin to see everything about it) ----------
+  function fmtDateTime(iso){
+    var d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'}) +
+      ' · ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}) + ' Uhr';
+  }
+  var markerDetailModal = document.getElementById('markerDetailModal');
+  var detailMarkerId = null;
+  function openMarkerDetail(m){
+    detailMarkerId = m.id;
+    var dotEl = document.getElementById('detailDot');
+    var labelEl = document.getElementById('detailLabel');
+    var descEl = document.getElementById('detailDesc');
+    var metaEl = document.getElementById('detailMeta');
+    if (dotEl) dotEl.style.background = markerColorHex(m);
+    if (labelEl) labelEl.textContent = markerLabel(m);
+    if (descEl){
+      descEl.textContent = m.description || '';
+      descEl.hidden = !m.description;
+    }
+    if (metaEl){
+      var dt = fmtDateTime(m.created_at);
+      metaEl.textContent = dt ? ('Hinzugefügt am ' + dt) : '';
+      metaEl.hidden = !dt;
+    }
+    if (markerDetailModal) markerDetailModal.classList.add('show');
+  }
+  function closeMarkerDetail(){
+    if (markerDetailModal) markerDetailModal.classList.remove('show');
+    detailMarkerId = null;
+  }
+  if (markerDetailModal){
+    var detailCloseBtn = document.getElementById('markerDetailClose');
+    if (detailCloseBtn) detailCloseBtn.addEventListener('click', closeMarkerDetail);
+    var detailDeleteBtn = document.getElementById('markerDetailDelete');
+    if (detailDeleteBtn) detailDeleteBtn.addEventListener('click', function(){
+      if (detailMarkerId) removeMarker(detailMarkerId);
+      closeMarkerDetail();
+    });
+    markerDetailModal.addEventListener('click', function(e){
+      if (e.target === markerDetailModal) closeMarkerDetail();
+    });
+  }
+
   loadMarkers();
   var markersChipBtn = document.querySelector('#markersPanel .chip');
   if (markersChipBtn){

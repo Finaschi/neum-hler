@@ -245,11 +245,32 @@ rediscover them:
    (10) and the modals (30) were already above both. If you add more
    full-screen overlay layers, keep this ordering in mind.
 
-Pins are visual only (`pointer-events:none` throughout, at the `#labelLayer`
-level and per-element) — tapping a marker in 3D space does nothing;
-removal is still only via the "Meine Marker" list, unchanged. If a future
-request wants tap-to-select/tap-to-delete pins directly, that's new scope,
-not built.
+~~Pins are visual only~~ — **update, same day**: saved-marker pins
+(`.map-pin`, not the GPS dot or measure pin) are now clickable
+(`pointer-events:auto` + a click listener added in `buildMarkerMesh`,
+closing over `m` directly rather than looking it up by id later) and open
+a detail modal (`#markerDetailModal`) showing the type/subtype label,
+description, and a formatted "Hinzugefügt am DD.MM.YYYY · HH:MM Uhr"
+timestamp, plus a delete button — see `openMarkerDetail()`/
+`closeMarkerDetail()`. This needed no backend/schema change: `created_at`
+was already a column with `default now()`, already returned by the Edge
+Function's `select("*")`, just never surfaced in the UI before. New
+markers get a client-side `created_at` set immediately on creation
+(optimistic), overwritten with the server's exact value once the POST
+resolves — matters for marker created *before* this feature shipped: they
+already have a real `created_at` in the database (the column's always been
+there with a default), so their real original creation date shows up
+correctly with no backfill needed.
+
+Marker types and species/subtype coloring: species colors (`SPECIES_COLORS`
+— pike/perch/both) are shared between `catch` ("Fang") and `territory`
+("Revier") markers now, not territory-only — the subtype picker
+(Hecht/Barsch/Beide) shows for both types (`typeNeedsSubtype()`), pin icon
+shape (fish vs. flag) is what distinguishes marker type, color is what
+distinguishes species. If you touch marker colors/labels again, keep
+`markerColor()`/`markerLabel()`/`MARKER_LABELS` in sync — they intentionally
+key off `type+'_'+subtype` when a subtype is present, falling back to the
+bare `type`.
 
 ### Known, deliberately-reverted change (pre-dates multi-lake work)
 
