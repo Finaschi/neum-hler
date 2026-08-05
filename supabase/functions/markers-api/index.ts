@@ -10,7 +10,7 @@
 //
 // Routes:
 //   GET    /markers-api?lake_id=<id>  -> { markers: [...] }  (markers for that lake only)
-//   POST   /markers-api               -> body { type, subtype, x, z, idx, lake_id } -> { marker }
+//   POST   /markers-api               -> body { type, subtype, x, z, idx, lake_id, description } -> { marker }
 //   DELETE /markers-api/<id>          -> { ok: true }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -67,7 +67,8 @@ Deno.serve(async (req) => {
       typeof body.x !== "number" ||
       typeof body.z !== "number" ||
       typeof body.idx !== "number" ||
-      (body.lake_id != null && typeof body.lake_id !== "string")
+      (body.lake_id != null && typeof body.lake_id !== "string") ||
+      (body.description != null && (typeof body.description !== "string" || body.description.length > 280))
     ) {
       return json({ error: "Ungültiger Marker" }, 400);
     }
@@ -80,6 +81,7 @@ Deno.serve(async (req) => {
         z: body.z,
         idx: body.idx,
         lake_id: body.lake_id ?? "neumuehler",
+        description: body.description || null,
       })
       .select()
       .single();

@@ -420,14 +420,15 @@
     font-weight:600;
   }
   .marker-item{
-    display:flex; align-items:center; gap:9px;
+    display:flex; align-items:flex-start; gap:9px;
     padding:7px 0;
     border-bottom:1px solid rgba(255,255,255,0.07);
     font-size:12px;
   }
   .marker-item:last-child{ border-bottom:none; }
-  .marker-dot{ width:9px; height:9px; border-radius:50%; flex:none; }
-  .marker-item-label{ flex:1; color:var(--ink); }
+  .marker-dot{ width:9px; height:9px; border-radius:50%; flex:none; margin-top:4px; }
+  .marker-item-text{ flex:1; display:flex; flex-direction:column; min-width:0; }
+  .marker-item-label{ color:var(--ink); line-height:1.5; }
   .marker-del{
     flex:none; width:24px; height:24px; border:none; border-radius:50%;
     background:rgba(255,255,255,0.07); color:var(--ink-dim); cursor:pointer;
@@ -453,7 +454,7 @@
     color:#fff; margin:0 0 4px 0; font-weight:600;
   }
   .marker-modal .marker-hint{ font-size:11.5px; color:var(--ink-dim); margin-bottom:14px; }
-  .marker-type-row, .marker-sub-row{ display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
+  .marker-type-row, .marker-sub-row:not([hidden]){ display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
   .marker-sub-row{ margin-top:2px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); }
   button.mtype-btn, button.msub-btn{
     display:flex; align-items:center; gap:10px;
@@ -489,6 +490,32 @@
   }
   .pin-input:focus{ border-color:var(--accent-teal); }
   .pin-error{ font-size:11.5px; color:#e88888; margin-top:8px; min-height:14px; }
+
+  .marker-desc{
+    width:100%;
+    background:rgba(255,255,255,0.05);
+    border:1px solid var(--panel-border);
+    color:var(--ink);
+    font-family:'Inter', sans-serif;
+    font-size:13px;
+    line-height:1.4;
+    padding:10px 12px;
+    border-radius:9px;
+    outline:none;
+    resize:vertical;
+    min-height:56px;
+    max-height:140px;
+  }
+  .marker-desc::placeholder{ color:var(--ink-dim); }
+  .marker-desc:focus{ border-color:var(--accent-teal); }
+  .marker-item-desc{
+    display:block;
+    font-size:11px;
+    color:var(--ink-dim);
+    margin-top:2px;
+    white-space:pre-wrap;
+    word-break:break-word;
+  }
   .sync-status{ font-size:10.5px; color:var(--ink-dim); margin:-2px 0 9px 0; display:flex; align-items:center; gap:5px; }
   .sync-status .dot{ width:6px; height:6px; border-radius:50%; background:var(--ink-dim); flex:none; }
   .sync-status.ok .dot{ background:#79d9a0; }
@@ -742,6 +769,7 @@
       <button class="msub-btn" data-msub="perch">Barsch</button>
       <button class="msub-btn" data-msub="both">Beide</button>
     </div>
+    <textarea class="marker-desc" id="markerDesc" maxlength="280" placeholder="Notiz (optional) — z. B. Köder, Wetter, Uhrzeit …"></textarea>
     <div class="marker-actions">
       <button class="ctrl" id="markerCancel">Abbrechen</button>
       <button class="ctrl primary" id="markerSave" disabled>Speichern</button>
@@ -1282,19 +1310,20 @@ function initApp(DATA){
       }
     });
   }
-  function addMarker(type, subtype, worldX, worldZ, idx){
+  function addMarker(type, subtype, worldX, worldZ, idx, description){
     ensurePin().then(function(pin){
       if (!pin){
         setSyncStatus('err', 'Nicht gespeichert · PIN erforderlich');
         return;
       }
+      var desc = description || null;
       var tempId = 'tmp_' + Date.now() + Math.floor(Math.random()*1000);
-      var m = { id:tempId, type:type, subtype:subtype||null, x:worldX, z:worldZ, idx:idx };
+      var m = { id:tempId, type:type, subtype:subtype||null, x:worldX, z:worldZ, idx:idx, description:desc };
       markers.push(m);
       markerGroup.add(buildMarkerMesh(m));
       renderMarkerList();
       setSyncStatus('', 'Speichere …');
-      apiRequest('POST', '', { type:type, subtype:subtype||null, x:worldX, z:worldZ, idx:idx, lake_id:DATA.id }, pin).then(function(data){
+      apiRequest('POST', '', { type:type, subtype:subtype||null, x:worldX, z:worldZ, idx:idx, lake_id:DATA.id, description:desc }, pin).then(function(data){
         m.id = data.marker.id;
         var obj = markerGroup.children.find(function(g){ return g.userData.markerId === tempId; });
         if (obj) obj.userData.markerId = m.id;
@@ -1354,10 +1383,18 @@ function initApp(DATA){
       markersListEl.innerHTML = '<div class="measure-placeholder">Noch keine Marker gespeichert. Doppelt auf die Karte tippen, um einen zu setzen.</div>';
       return;
     }
+    function escapeHtml(s){
+      return s.replace(/[&<>"']/g, function(c){
+        return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+      });
+    }
     markersListEl.innerHTML = markers.slice().reverse().map(function(m){
       return '<div class="marker-item">' +
         '<span class="marker-dot" style="background:#'+markerColor(m).toString(16).padStart(6,'0')+'"></span>' +
-        '<span class="marker-item-label">'+markerLabel(m)+'</span>' +
+        '<span class="marker-item-text">' +
+          '<span class="marker-item-label">'+markerLabel(m)+'</span>' +
+          (m.description ? '<span class="marker-item-desc">'+escapeHtml(m.description)+'</span>' : '') +
+        '</span>' +
         '<button class="marker-del" data-del="'+m.id+'" aria-label="Marker löschen">✕</button>' +
       '</div>';
     }).join('');
@@ -1393,6 +1430,8 @@ function initApp(DATA){
       if (subRow) subRow.hidden = true;
       var saveBtn = document.getElementById('markerSave');
       if (saveBtn) saveBtn.disabled = true;
+      var descEl = document.getElementById('markerDesc');
+      if (descEl) descEl.value = '';
       markerModal.classList.add('show');
     }
   }
@@ -1433,7 +1472,9 @@ function initApp(DATA){
     if (saveBtnEl) saveBtnEl.addEventListener('click', function(){
       if (!pendingPoint || !pendingType) return;
       if (pendingType === 'territory' && !pendingSub) return;
-      addMarker(pendingType, pendingSub, pendingPoint.x, pendingPoint.z, pendingPoint.idx);
+      var descEl = document.getElementById('markerDesc');
+      var desc = descEl ? descEl.value.trim() : '';
+      addMarker(pendingType, pendingSub, pendingPoint.x, pendingPoint.z, pendingPoint.idx, desc);
       closeMarkerModal();
     });
     var cancelBtnEl = document.getElementById('markerCancel');

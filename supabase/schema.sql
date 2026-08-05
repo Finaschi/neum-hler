@@ -11,6 +11,7 @@ create table if not exists public.markers (
   z double precision not null,
   idx integer not null,
   lake_id text not null default 'neumuehler',
+  description text,
   created_at timestamptz not null default now()
 );
 
@@ -20,6 +21,10 @@ create table if not exists public.markers (
 -- hence the default.
 alter table public.markers add column if not exists lake_id text not null default 'neumuehler';
 create index if not exists markers_lake_id_idx on public.markers (lake_id);
+
+-- Free-text marker notes: run this against an existing database that
+-- predates the description column (safe to re-run).
+alter table public.markers add column if not exists description text;
 
 -- RLS is enabled with NO policies attached on purpose: the anon/public API
 -- key therefore has zero direct access to this table. The only way in is

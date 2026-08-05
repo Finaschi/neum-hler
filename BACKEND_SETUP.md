@@ -65,33 +65,36 @@ status line under "Meine Marker" shows sync state (synced / offline / wrong
 PIN). If the connection drops, the last-synced marker list is still shown
 from a local cache, but new markers can't be saved until it's back online.
 
-## 3b. Multi-lake update — one-time steps if you already deployed the backend
+## 3b. Backend updates — one-time steps if you already deployed the backend
 
-The app now supports multiple lakes, and markers need to know which lake
-they belong to. Two things need updating on your existing Supabase project
-(both are safe to run even if you're not sure whether you've done them
-before — they're written to be re-run without harm):
+The app has picked up two backend-touching features since the original
+setup: multi-lake support (markers need to know which lake they belong to)
+and marker descriptions (a free-text note field). Both need the same two
+updates on your existing Supabase project — do this once and you're caught
+up on both (safe to re-run even if you already did part of this before):
 
 1. **Database**: open **SQL Editor → New query**, paste this, and run it:
    ```sql
    alter table public.markers add column if not exists lake_id text not null default 'neumuehler';
    create index if not exists markers_lake_id_idx on public.markers (lake_id);
+   alter table public.markers add column if not exists description text;
    ```
-   This adds the new column without touching your existing markers — they
-   all get labelled `neumuehler` automatically, which is correct since that
-   was the only lake before this update.
+   This adds the new columns without touching your existing markers — they
+   all get labelled `neumuehler` automatically (correct, since that was the
+   only lake before multi-lake support) and get an empty description.
 
 2. **Edge Function**: open **Edge Functions** in the dashboard, open your
    function (the one whose URL slug is `dynamic-task`, even though it's
    displayed as "markers-api"), and replace its code with the current
    contents of [`supabase/functions/markers-api/index.ts`](supabase/functions/markers-api/index.ts)
    in this repo, then deploy. The `MARKERS_PIN` secret and everything else
-   stays as-is — only the code changes (it now filters/tags markers by
-   `lake_id`).
+   stays as-is — only the code changes.
 
-If you skip step 2, the app still works, but markers from different lakes
-will all mix together in the "Meine Marker" list instead of being scoped to
-the lake you're currently viewing.
+If you skip this, the app still works, but markers from different lakes
+mix together instead of being scoped to the lake you're viewing, and any
+description you type when placing a marker won't actually be saved (it'll
+show locally on your device until the next sync, then quietly disappear
+once the server confirms the save without it).
 
 ## 4. Installing it on an iPhone (no App Store)
 
