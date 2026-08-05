@@ -35,12 +35,13 @@
     font-family:'Inter', system-ui, sans-serif;
     color:var(--ink);
   }
-  #scene{position:absolute; inset:0;}
+  #scene{position:absolute; inset:0; z-index:0;}
   #scene canvas{display:block;}
 
   .hud{
     position:absolute;
     pointer-events:none;
+    z-index:5;
   }
   .panel{
     pointer-events:auto;
@@ -522,6 +523,88 @@
   .map-modal .map-legend .sw{ width:8px; height:8px; border-radius:50%; flex:none; }
   .map-modal .map-note{ font-size:10.5px; color:var(--ink-dim); margin-top:6px; line-height:1.4; }
   .leaflet-control-attribution{ font-size:9px !important; }
+
+  /* ---------- Apple-Maps-style billboard markers (rendered via CSS2DRenderer) ---------- */
+  #labelLayer{ position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .map-pin{
+    position:relative;
+    width:28px; height:36px;
+    transform:translate(-50%,-100%);
+    pointer-events:none;
+    filter:drop-shadow(0 3px 5px rgba(0,0,0,0.5));
+  }
+  .map-pin .pin-body{
+    position:absolute; top:0; left:0;
+    width:28px; height:28px;
+    border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    border:2px solid rgba(255,255,255,0.92);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .map-pin .pin-icon{
+    transform:rotate(45deg);
+    width:14px; height:14px;
+    color:#fff;
+    display:flex;
+  }
+  .map-pin .pin-icon svg{ width:100%; height:100%; }
+  .map-pin.dropping{ animation:pinDrop 0.42s cubic-bezier(.32,1.6,.5,1) both; }
+  @keyframes pinDrop{
+    0%{ transform:translate(-50%,-100%) translateY(-22px) scale(0.35); opacity:0; }
+    65%{ transform:translate(-50%,-100%) translateY(4px) scale(1.08); opacity:1; }
+    100%{ transform:translate(-50%,-100%) translateY(0) scale(1); }
+  }
+
+  .measure-pin{
+    position:relative;
+    width:26px; height:34px;
+    transform:translate(-50%,-100%);
+    pointer-events:none;
+    filter:drop-shadow(0 3px 5px rgba(0,0,0,0.5));
+  }
+  .measure-pin .pin-body{
+    position:absolute; top:0; left:0;
+    width:26px; height:26px;
+    border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    background:#ff5a5a;
+    border:2px solid rgba(255,255,255,0.92);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .measure-pin .pin-icon{
+    transform:rotate(45deg);
+    width:11px; height:11px;
+    color:#fff;
+    display:flex;
+  }
+  .measure-pin .pin-icon svg{ width:100%; height:100%; }
+
+  .gps-dot-wrap{
+    position:relative;
+    width:1px; height:1px;
+    pointer-events:none;
+  }
+  .gps-dot-wrap .gps-halo{
+    position:absolute; left:0; top:0;
+    width:16px; height:16px;
+    margin:-8px 0 0 -8px;
+    border-radius:50%;
+    background:rgba(79,195,247,0.35);
+    animation:gpsPulse 2.2s ease-out infinite;
+  }
+  .gps-dot-wrap .gps-core{
+    position:absolute; left:0; top:0;
+    width:16px; height:16px;
+    margin:-8px 0 0 -8px;
+    border-radius:50%;
+    background:#4fc3f7;
+    border:3px solid #fff;
+    box-shadow:0 2px 6px rgba(0,0,0,0.45), 0 0 0 1px rgba(79,195,247,0.4);
+  }
+  @keyframes gpsPulse{
+    0%{ transform:scale(0.5); opacity:0.9; }
+    100%{ transform:scale(2.6); opacity:0; }
+  }
 </style>
 </head>
 <body>
@@ -684,6 +767,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var LAKES = [
@@ -798,6 +882,47 @@ function initApp(DATA){
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
 
+  // Billboard UI markers (pins, GPS dot) — real DOM/CSS elements kept in
+  // screen-space sync with their 3D world position by CSS2DRenderer, so
+  // they can look like actual Apple-Maps-style pins (teardrop shape, always
+  // facing the camera) instead of literal 3D geometry. Sits on top of the
+  // WebGL canvas but with pointer-events disabled on the layer itself (see
+  // #labelLayer CSS) so taps still reach the canvas for measuring/orbiting.
+  var labelRenderer = new THREE.CSS2DRenderer();
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.domElement.id = 'labelLayer';
+  container.appendChild(labelRenderer.domElement);
+
+  var ICONS = {
+    poi: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>',
+    catch: '<svg viewBox="0 0 24 24" fill="currentColor"><ellipse cx="10" cy="12" rx="8" ry="5"/><path d="M18 8l5 4-5 4z"/></svg>',
+    territory: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="2" width="2.2" height="20" rx="1"/><path d="M7.2 3h13l-4 5 4 5h-13z"/></svg>',
+    measure: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="12" cy="12" r="2.6"/></svg>'
+  };
+  function pinIconFor(m){ return m.type === 'territory' ? ICONS.territory : (ICONS[m.type] || ICONS.poi); }
+  function makePinElement(className, hexColor, iconSvg, dropIn){
+    var wrap = document.createElement('div');
+    var pin = document.createElement('div');
+    pin.className = className + (dropIn ? ' dropping' : '');
+    var body = document.createElement('div');
+    body.className = 'pin-body';
+    body.style.background = hexColor;
+    var icon = document.createElement('span');
+    icon.className = 'pin-icon';
+    icon.innerHTML = iconSvg;
+    body.appendChild(icon);
+    pin.appendChild(body);
+    wrap.appendChild(pin);
+    return wrap;
+  }
+  function retriggerDrop(cssObj){
+    var el = cssObj.element.firstChild;
+    if (!el) return;
+    el.classList.remove('dropping');
+    void el.offsetWidth; // force reflow so the animation restarts
+    el.classList.add('dropping');
+  }
+
   var worldW = (GW-1)*CELL;
   var worldD = (GH-1)*CELL;
 
@@ -897,6 +1022,7 @@ function initApp(DATA){
     camera.aspect = window.innerWidth/window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    labelRenderer.setSize(window.innerWidth, window.innerHeight);
   });
 
   // =====================================================================
@@ -906,15 +1032,20 @@ function initApp(DATA){
   var mouseNDC = new THREE.Vector2();
 
   var measureMarker = new THREE.Group();
-  var mmSphere = new THREE.Mesh(
-    new THREE.SphereGeometry(Math.max(worldW,worldD)*0.006, 16, 16),
-    new THREE.MeshStandardMaterial({color:0xff5a5a, emissive:0x6b0000, emissiveIntensity:0.6})
-  );
-  measureMarker.add(mmSphere);
+  var mmPin = new THREE.CSS2DObject(makePinElement('measure-pin', '#ff5a5a', ICONS.measure, false));
+  measureMarker.add(mmPin);
   var mmLineMat = new THREE.LineBasicMaterial({color:0xff5a5a, transparent:true, opacity:0.7});
   var mmLineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,0)]);
   var mmLine = new THREE.Line(mmLineGeo, mmLineMat);
   measureMarker.add(mmLine);
+  // CSS2DRenderer only checks a CSS2DObject's own .visible, not whether its
+  // parent Group is visible (unlike WebGLRenderer, which does cascade) — so
+  // mmPin needs its visibility driven explicitly whenever measureMarker's is
+  // set, or the pin element would stay permanently on-screen.
+  Object.defineProperty(measureMarker, 'visible', {
+    get: function(){ return this._visible; },
+    set: function(v){ this._visible = v; mmPin.visible = v; }
+  });
   measureMarker.visible = false;
   scene.add(measureMarker);
 
@@ -923,9 +1054,9 @@ function initApp(DATA){
     if (lastMeasureIdx < 0) return;
     var e = baseZ[lastMeasureIdx];
     var y = e<0 ? e*EXAG : e;
-    mmSphere.position.y = y;
-    var pts = [ new THREE.Vector3(mmSphere.position.x, Math.max(y, 4), mmSphere.position.z),
-                new THREE.Vector3(mmSphere.position.x, y, mmSphere.position.z) ];
+    mmPin.position.y = y;
+    var pts = [ new THREE.Vector3(mmPin.position.x, Math.max(y, 4), mmPin.position.z),
+                new THREE.Vector3(mmPin.position.x, y, mmPin.position.z) ];
     mmLine.geometry.setFromPoints(pts);
   }
 
@@ -948,10 +1079,11 @@ function initApp(DATA){
     var e = EL[idx];
     lastMeasureIdx = idx;
 
-    mmSphere.position.x = p.x;
-    mmSphere.position.z = p.z;
+    mmPin.position.x = p.x;
+    mmPin.position.z = p.z;
     measureMarker.visible = true;
     updateMeasureMarkerHeight();
+    retriggerDrop(mmPin);
 
     measurePanel.classList.add('has-data');
     if (e <= 0){
@@ -1072,27 +1204,20 @@ function initApp(DATA){
   scene.add(markerGroup);
   var MARKER_COLORS = { poi:0xf4e98c, catch:0x5ad1a0, territory_pike:0x3aa0e0, territory_perch:0xe08a3a, territory_both:0x9a6fe0 };
   function markerColor(m){ return m.type==='territory' ? MARKER_COLORS['territory_'+m.subtype] : MARKER_COLORS[m.type]; }
+  function markerColorHex(m){ return '#' + markerColor(m).toString(16).padStart(6,'0'); }
   function markerElevY(m){ var e = baseZ[m.idx]; return e<0 ? e*EXAG : e; }
   function buildMarkerMesh(m){
-    var grp = new THREE.Group();
-    var col = markerColor(m);
-    var size = Math.max(worldW,worldD)*0.011;
-    var head = new THREE.Mesh(new THREE.SphereGeometry(size*0.55,14,14), new THREE.MeshStandardMaterial({color:col, emissive:col, emissiveIntensity:0.5}));
-    var pin = new THREE.Mesh(new THREE.ConeGeometry(size*0.32, size*1.5, 10), new THREE.MeshStandardMaterial({color:col, emissive:col, emissiveIntensity:0.22}));
-    pin.rotation.x = Math.PI;
-    pin.position.y = -size*0.95;
-    head.position.y = size*0.2;
-    grp.add(pin, head);
-    grp.position.set(m.x, markerElevY(m) + size*1.15, m.z);
-    grp.userData.markerId = m.id;
-    return grp;
+    var el = makePinElement('map-pin', markerColorHex(m), pinIconFor(m), true);
+    var obj = new THREE.CSS2DObject(el);
+    obj.position.set(m.x, markerElevY(m), m.z);
+    obj.userData.markerId = m.id;
+    return obj;
   }
   function updateAllMarkerHeights(){
-    markerGroup.children.forEach(function(grp){
-      var m = markers.find(function(mm){ return mm.id === grp.userData.markerId; });
+    markerGroup.children.forEach(function(obj){
+      var m = markers.find(function(mm){ return mm.id === obj.userData.markerId; });
       if (!m) return;
-      var size = Math.max(worldW,worldD)*0.011;
-      grp.position.y = markerElevY(m) + size*1.15;
+      obj.position.y = markerElevY(m);
     });
   }
   function clearMarkerMeshes(){
@@ -1330,22 +1455,21 @@ function initApp(DATA){
   // =====================================================================
   //  GPS "YOU ARE HERE"
   // =====================================================================
+  // Apple-Maps-style "blue dot": a CSS2D billboard with a pure-CSS pulsing
+  // halo (see .gps-dot-wrap in <style>) instead of 3D sphere/ring/pole
+  // meshes — always reads clearly regardless of camera angle or zoom.
   var gpsGroup = new THREE.Group();
-  var gpsDot = new THREE.Mesh(
-    new THREE.SphereGeometry(Math.max(worldW,worldD)*0.008, 16, 16),
-    new THREE.MeshStandardMaterial({color:0x4fc3f7, emissive:0x0a4a66, emissiveIntensity:0.9})
-  );
-  var gpsRing = new THREE.Mesh(
-    new THREE.RingGeometry(Math.max(worldW,worldD)*0.012, Math.max(worldW,worldD)*0.016, 32),
-    new THREE.MeshBasicMaterial({color:0x4fc3f7, transparent:true, opacity:0.55, side:THREE.DoubleSide})
-  );
-  gpsRing.rotation.x = -Math.PI/2;
-  var gpsPole = new THREE.Mesh(
-    new THREE.CylinderGeometry(Math.max(worldW,worldD)*0.0015, Math.max(worldW,worldD)*0.0015, 40, 6),
-    new THREE.MeshBasicMaterial({color:0x4fc3f7, transparent:true, opacity:0.5})
-  );
-  gpsPole.position.y = 20;
-  gpsGroup.add(gpsDot, gpsRing, gpsPole);
+  var gpsDotEl = document.createElement('div');
+  gpsDotEl.className = 'gps-dot-wrap';
+  gpsDotEl.innerHTML = '<div class="gps-halo"></div><div class="gps-core"></div>';
+  var gpsDot = new THREE.CSS2DObject(gpsDotEl);
+  gpsGroup.add(gpsDot);
+  // Same CSS2DRenderer quirk as measureMarker above: cascade visibility to
+  // the CSS2DObject explicitly, it doesn't inherit from the parent Group.
+  Object.defineProperty(gpsGroup, 'visible', {
+    get: function(){ return this._visible; },
+    set: function(v){ this._visible = v; gpsDot.visible = v; }
+  });
   gpsGroup.visible = false;
   scene.add(gpsGroup);
 
@@ -1592,17 +1716,11 @@ function initApp(DATA){
   });
 
   // ---------- render loop ----------
-  var clock = new THREE.Clock();
   function animate(){
     requestAnimationFrame(animate);
-    var t = clock.getElapsedTime();
-    if (gpsGroup.visible){
-      var s = 1 + 0.25*Math.sin(t*2.4);
-      gpsRing.scale.set(s,s,s);
-      gpsRing.material.opacity = 0.55 - 0.25*Math.sin(t*2.4);
-    }
     controls.update();
     renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
   }
 
   var loadingEl = document.getElementById('loading');

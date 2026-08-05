@@ -202,6 +202,55 @@ bake script and add the lake to the `LAKES` array in `index.html`
   code doesn't read that param) and every lake will show every marker mixed
   together — not broken, just not scoped, until they redeploy.
 
+## Apple-Maps-style pin markers — BUILT (2026-08-05)
+
+Saved markers (POI/Fang/Revier), the GPS "you are here" dot, and the
+tap-to-measure point all used to be literal 3D meshes (cone+sphere, ring,
+cylinder) sitting in the terrain. They're now real DOM/CSS elements —
+teardrop pins with an SVG icon, a pulsing blue GPS dot — kept in
+screen-space sync with their 3D world position via Three.js's
+`CSS2DRenderer`/`CSS2DObject` (r128's non-module build, loaded the same way
+as `OrbitControls.js`: `examples/js/renderers/CSS2DRenderer.js`). This is
+the standard way to get authentic 2D "always faces the camera" map-pin
+styling that would be very awkward to fake with actual 3D geometry.
+
+Two non-obvious gotchas hit and fixed while building this — don't
+rediscover them:
+
+1. **CSS2DObject visibility does not cascade from parent Group.visible.**
+   Normal Three.js meshes inherit invisibility from an invisible ancestor
+   (WebGLRenderer's traversal skips them). `CSS2DRenderer.renderObject()`
+   does not do this — it checks each `CSS2DObject`'s *own* `.visible` only,
+   and *unconditionally* recurses into every object's children regardless
+   of that object's own visibility. Concretely: `measureMarker.visible =
+   false` did **not** hide `mmPin` (a CSS2DObject child of that group) — the
+   measure pin and GPS dot both stayed permanently on-screen from first
+   load, invisible-parent or not. Fixed by overriding `.visible` on
+   `measureMarker` and `gpsGroup` with `Object.defineProperty` (getter/
+   setter) so setting the group's visibility explicitly cascades to the
+   CSS2DObject child's `.visible` too. If you add another CSS2DObject that
+   needs to be hidden/shown via a parent Group's visibility, it needs the
+   same treatment — there is no free inheritance.
+2. **CSS2DRenderer sets an explicit numeric `z-index` on every pin element**
+   (for camera-distance sorting among pins themselves, `zOrder()` in the
+   renderer source). If nothing establishes an isolated CSS stacking
+   context around `#scene`, that explicit z-index escapes all the way to
+   the page's root stacking context and beats the HUD panels' `z-index:
+   auto` — regardless of DOM order — so a pin at the "wrong" screen depth
+   would render **on top of** the Controls/Legend/etc. panels instead of
+   being correctly hidden behind them, like the 3D terrain always was.
+   Fixed with `#scene{ z-index:0; }` (isolates the scene subtree, containing
+   CSS2DRenderer's internal z-index jockeying inside it) + `.hud{
+   z-index:5; }` (so panels reliably paint above the whole scene). `#loading`
+   (10) and the modals (30) were already above both. If you add more
+   full-screen overlay layers, keep this ordering in mind.
+
+Pins are visual only (`pointer-events:none` throughout, at the `#labelLayer`
+level and per-element) — tapping a marker in 3D space does nothing;
+removal is still only via the "Meine Marker" list, unchanged. If a future
+request wants tap-to-select/tap-to-delete pins directly, that's new scope,
+not built.
+
 ### Known, deliberately-reverted change (pre-dates multi-lake work)
 
 A fix was built and verified working (disabling `controls.enabled` while
