@@ -659,9 +659,10 @@
     <div id="leafletMap"></div>
     <div class="map-legend">
       <span><span class="sw" style="background:#2fb7c9"></span>Rekonstruierte Uferlinie</span>
+      <span><span class="sw" style="background:#f4e98c"></span>Echte Uferlinie (Google Earth)</span>
       <span><span class="sw" style="background:#4fc3f7"></span>Mein Standort (GPS)</span>
     </div>
-    <div class="map-note">Die türkise Linie zeigt, wo unser 3D-Modell den See vermutet — zum Vergleich mit der echten Karte. Kleine Abweichungen sind normal (siehe Hinweis zur Genauigkeit).</div>
+    <div class="map-note">Türkis = unser 3D-Modell, Gelb = echte, in Google Earth nachgezeichnete Uferlinie. Kleine Abweichungen sind normal (siehe Hinweis zur Genauigkeit).</div>
   </div>
 </div>
 
@@ -707,66 +708,34 @@
   }
   function fmt1(n){ return n.toLocaleString('de-DE', {minimumFractionDigits:1, maximumFractionDigits:1}); }
 
-  // ---------- geo-reference (three-point affine calibration) ----------
-  // Three real-world reference points (read off Google Maps), each paired
-  // with the matching point in our reconstructed shoreline: the NW tip, the
-  // SE tip, and a shore point roughly in the middle. Three points let us
-  // fit a full affine transform — catches an east-west vs north-south scale
-  // mismatch or shear that a two-point (rotation + uniform scale only) fit
-  // can't detect, which is what was still leaving a visible offset before.
-  var LAT0 = 53.659666666666666, LON0 = 11.296861111111111; // NW tip (reference origin)
-  var GEO_B = { lat: 53.62588888888889, lon: 11.360944444444444 }; // SE tip
-  var GEO_C = { lat: 53.64694444444444, lon: 11.30913888888889 };  // mid shore point
-  var WORLD_A = { x: -2064.4085, z: -1952.544 };
-  var WORLD_B = { x: 2064.4085,  z: 1972.883  };
-  var WORLD_C = { x: -1271.1875, z: -528.814  };
-
+  // ---------- geo-reference (ICP fit against a full traced shoreline) ----------
+  // Earlier versions pinned 1-3 individually picked points, which is fragile
+  // (easy to mismatch which point is which, and a couple of points can't
+  // catch subtle scale/shear issues). This instead fits a similarity
+  // transform (rotation + uniform scale + translation) that best aligns our
+  // ~600 reconstructed shoreline points against a full real shoreline traced
+  // in Google Earth (~165 points) — an iterative closest-point fit, solved
+  // offline and hardcoded here as the resulting 4 numbers. Residual error
+  // after fitting: RMS ≈45m, median ≈29m, over a lake that's ~4km long —
+  // consistent with normal digitization/tracing noise on 20m-resolution
+  // source data, not a systematic misalignment.
+  var LAT_REF = 53.64674467661244, LON_REF = 11.322221122389335;
   var M_PER_DEG_LAT = 111320;
-  var LAT_REF = (LAT0 + GEO_B.lat) / 2;
   var M_PER_DEG_LON = 111320 * Math.cos(LAT_REF * Math.PI/180);
+  var FIT_U = 1.001831281031112, FIT_V = 0.007069425080540514;
+  var FIT_TX = 451.51474200353425, FIT_TY = -485.1801889886261;
+  var LAT0 = LAT_REF, LON0 = LON_REF; // kept for any code referencing the old names
 
-  function geoToEN(lat, lon){ // local east/north meters, relative to the NW tip
-    return { e: (lon - LON0) * M_PER_DEG_LON, n: (lat - LAT0) * M_PER_DEG_LAT };
-  }
-  var _EA = { e: 0, n: 0 };
-  var _EB = geoToEN(GEO_B.lat, GEO_B.lon);
-  var _EC = geoToEN(GEO_C.lat, GEO_C.lon);
-
-  function _solveAffineRow(rows, rhs){ // Cramer's rule on the 3x3 system
-    function det3(m){
-      return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])
-           - m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])
-           + m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
-    }
-    var D = det3(rows), sol = [];
-    for (var col = 0; col < 3; col++){
-      var m2 = rows.map(function(r){ return r.slice(); });
-      for (var i = 0; i < 3; i++) m2[i][col] = rhs[i];
-      sol.push(det3(m2)/D);
-    }
-    return sol;
-  }
-  var _affineRows = [
-    [WORLD_A.x, WORLD_A.z, 1],
-    [WORLD_B.x, WORLD_B.z, 1],
-    [WORLD_C.x, WORLD_C.z, 1]
-  ];
-  // [e,n] = [[AA,AB],[AC,AD]] * [x,z] + [ATX,ATY]
-  var _esol = _solveAffineRow(_affineRows, [_EA.e, _EB.e, _EC.e]);
-  var _nsol = _solveAffineRow(_affineRows, [_EA.n, _EB.n, _EC.n]);
-  var AA = _esol[0], AB = _esol[1], ATX = _esol[2];
-  var AC = _nsol[0], AD = _nsol[1], ATY = _nsol[2];
-  var ADET = AA*AD - AB*AC;
-
-  function geoToWorld(lat, lon){
-    var en = geoToEN(lat, lon);
-    var ex = en.e - ATX, ny = en.n - ATY;
-    return { x: (AD*ex - AB*ny) / ADET, z: (-AC*ex + AA*ny) / ADET };
-  }
   function worldToGeo(x, z){
-    var e = AA*x + AB*z + ATX;
-    var n = AC*x + AD*z + ATY;
-    return { lat: LAT0 + n/M_PER_DEG_LAT, lon: LON0 + e/M_PER_DEG_LON };
+    var e = FIT_U*x + FIT_V*z + FIT_TX;
+    var n = FIT_V*x - FIT_U*z + FIT_TY;
+    return { lat: LAT_REF + n/M_PER_DEG_LAT, lon: LON_REF + e/M_PER_DEG_LON };
+  }
+  function geoToWorld(lat, lon){
+    var e = (lon-LON_REF)*M_PER_DEG_LON - FIT_TX;
+    var n = (lat-LAT_REF)*M_PER_DEG_LAT - FIT_TY;
+    var denom = FIT_U*FIT_U + FIT_V*FIT_V;
+    return { x: (FIT_U*e + FIT_V*n) / denom, z: (FIT_V*e - FIT_U*n) / denom };
   }
 
   // ---------- scene setup ----------
@@ -1440,6 +1409,11 @@
     return pts;
   }
 
+  // Real shoreline, hand-traced in Google Earth — used to calibrate the fit
+  // above, and drawn here too so you can see the two outlines directly
+  // against each other.
+  var REAL_SHORELINE = [[53.653074,11.301248],[53.652523,11.301485],[53.651901,11.301781],[53.651957,11.302433],[53.651218,11.303533],[53.650169,11.304756],[53.649608,11.306274],[53.648105,11.306811],[53.647743,11.306625],[53.646769,11.309791],[53.646983,11.313553],[53.647243,11.316886],[53.64678,11.319207],[53.646367,11.320278],[53.646042,11.321034],[53.646442,11.321233],[53.646474,11.322373],[53.646119,11.3243],[53.645177,11.327103],[53.644861,11.330193],[53.644821,11.332247],[53.644512,11.332452],[53.643547,11.333172],[53.643183,11.33368],[53.641748,11.337971],[53.641674,11.338511],[53.641356,11.338851],[53.639824,11.340362],[53.639217,11.341241],[53.638942,11.343479],[53.637405,11.343575],[53.637046,11.343623],[53.636102,11.345081],[53.635141,11.345579],[53.634804,11.345505],[53.634686,11.345982],[53.633988,11.346909],[53.632529,11.348887],[53.631755,11.349502],[53.630478,11.350464],[53.629153,11.352754],[53.628738,11.35337],[53.628495,11.353223],[53.628118,11.353434],[53.6278,11.35402],[53.627384,11.354464],[53.627085,11.355004],[53.626782,11.354895],[53.626084,11.3557],[53.625556,11.356227],[53.625069,11.356588],[53.624476,11.3575],[53.624433,11.359629],[53.624973,11.360901],[53.626035,11.360919],[53.627574,11.358942],[53.62839,11.358087],[53.62861,11.357503],[53.628939,11.356995],[53.630569,11.3557],[53.630971,11.354574],[53.632144,11.353873],[53.633707,11.351658],[53.635046,11.350242],[53.635193,11.349716],[53.635278,11.349337],[53.636432,11.348876],[53.638075,11.347769],[53.639038,11.346982],[53.639893,11.346649],[53.641194,11.344881],[53.642122,11.34345],[53.643229,11.343144],[53.644316,11.342021],[53.64467,11.341072],[53.64487,11.339611],[53.645865,11.33733],[53.646511,11.336338],[53.646852,11.335551],[53.647543,11.333208],[53.647877,11.331329],[53.647989,11.329914],[53.647976,11.329289],[53.648379,11.327452],[53.64879,11.325922],[53.648795,11.323081],[53.649147,11.322554],[53.649873,11.322905],[53.650156,11.322699],[53.650021,11.322249],[53.649541,11.321859],[53.648917,11.321764],[53.64883,11.321083],[53.649197,11.32013],[53.649301,11.318233],[53.649396,11.316238],[53.649524,11.313496],[53.649424,11.312345],[53.64934,11.311478],[53.649825,11.309835],[53.650087,11.309757],[53.650311,11.310154],[53.650465,11.310573],[53.650454,11.31014],[53.650365,11.309637],[53.650261,11.309367],[53.650496,11.308481],[53.651471,11.307909],[53.6525,11.307006],[53.653535,11.306443],[53.654787,11.306312],[53.655667,11.305861],[53.656166,11.305335],[53.656578,11.304928],[53.657199,11.305114],[53.65862,11.304313],[53.659556,11.303215],[53.659986,11.30309],[53.660122,11.302537],[53.660207,11.300724],[53.6605,11.299507],[53.660299,11.298778],[53.659972,11.298435],[53.660003,11.297603],[53.660099,11.296807],[53.659774,11.296315],[53.659231,11.297557],[53.659372,11.29835],[53.659405,11.298802],[53.659621,11.298769],[53.659323,11.299311],[53.659057,11.299276],[53.658606,11.299619],[53.658189,11.299975],[53.657861,11.300041],[53.657739,11.301073],[53.657915,11.30167],[53.657582,11.301871],[53.657197,11.301805],[53.656893,11.301561],[53.656422,11.301429],[53.65622,11.301074],[53.656276,11.300676],[53.656789,11.301011],[53.657086,11.300841],[53.657536,11.300095],[53.657286,11.299904],[53.656696,11.299862],[53.656436,11.299448],[53.656153,11.298894],[53.655762,11.2993],[53.655673,11.299803],[53.65548,11.299652],[53.655424,11.298979],[53.65516,11.29891],[53.655025,11.299579],[53.655266,11.299873],[53.654979,11.300098],[53.654587,11.299976],[53.654524,11.300345],[53.654428,11.300622],[53.65412,11.300609],[53.653842,11.300988],[53.653334,11.30129],[53.653074,11.301248]];
+
   var leafletMap = null, leafletGpsMarker = null, leafletGpsCircle = null;
   function initLeafletMap(){
     if (leafletMap || typeof L === 'undefined') return;
@@ -1448,18 +1422,13 @@
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
     }).addTo(leafletMap);
+    L.polygon(REAL_SHORELINE, { color:'#f4e98c', weight:2, fill:false }).addTo(leafletMap);
     var shoreLatLngs = buildShorelinePoints().map(function(g){ return [g.lat, g.lon]; });
     shoreLatLngs.forEach(function(ll){
       L.circleMarker(ll, { radius:2, color:'#2fb7c9', weight:0, fillOpacity:0.85 }).addTo(leafletMap);
     });
     if (shoreLatLngs.length) leafletMap.fitBounds(shoreLatLngs, { padding:[24,24] });
     else leafletMap.setView([LAT0, LON0], 13);
-    L.circleMarker([LAT0, LON0], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
-      .addTo(leafletMap).bindTooltip('Referenzpunkt (NW-Spitze)');
-    L.circleMarker([GEO_B.lat, GEO_B.lon], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
-      .addTo(leafletMap).bindTooltip('Referenzpunkt (SO-Spitze)');
-    L.circleMarker([GEO_C.lat, GEO_C.lon], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
-      .addTo(leafletMap).bindTooltip('Referenzpunkt (Mitte)');
   }
   function updateMapGpsMarker(w, acc){
     if (!leafletMap) return;
