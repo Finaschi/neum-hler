@@ -764,7 +764,7 @@
       <button class="mtype-btn" data-mtype="catch">Fang</button>
       <button class="mtype-btn" data-mtype="territory">Revier</button>
     </div>
-    <div class="marker-sub-row" id="territorySubRow" hidden>
+    <div class="marker-sub-row" id="subtypeRow" hidden>
       <button class="msub-btn" data-msub="pike">Hecht</button>
       <button class="msub-btn" data-msub="perch">Barsch</button>
       <button class="msub-btn" data-msub="both">Beide</button>
@@ -1230,8 +1230,15 @@ function initApp(DATA){
   var markers = [];
   var markerGroup = new THREE.Group();
   scene.add(markerGroup);
-  var MARKER_COLORS = { poi:0xf4e98c, catch:0x5ad1a0, territory_pike:0x3aa0e0, territory_perch:0xe08a3a, territory_both:0x9a6fe0 };
-  function markerColor(m){ return m.type==='territory' ? MARKER_COLORS['territory_'+m.subtype] : MARKER_COLORS[m.type]; }
+  var MARKER_COLORS = { poi:0xf4e98c, catch:0x5ad1a0 };
+  // Species colors are shared between Fang and Revier markers — same fish,
+  // same color, regardless of which of the two marker types it's on. The
+  // pin's icon (fish vs. flag) is what distinguishes marker type instead.
+  var SPECIES_COLORS = { pike:0x3aa0e0, perch:0xe08a3a, both:0x9a6fe0 };
+  function markerColor(m){
+    if (m.subtype && SPECIES_COLORS[m.subtype] != null) return SPECIES_COLORS[m.subtype];
+    return MARKER_COLORS[m.type] != null ? MARKER_COLORS[m.type] : MARKER_COLORS.poi;
+  }
   function markerColorHex(m){ return '#' + markerColor(m).toString(16).padStart(6,'0'); }
   function markerElevY(m){ var e = baseZ[m.idx]; return e<0 ? e*EXAG : e; }
   function buildMarkerMesh(m){
@@ -1370,9 +1377,10 @@ function initApp(DATA){
 
   var MARKER_LABELS = {
     poi:'Interessenpunkt', catch:'Fang',
+    catch_pike:'Fang · Hecht', catch_perch:'Fang · Barsch', catch_both:'Fang · Hecht & Barsch',
     territory_pike:'Revier · Hecht', territory_perch:'Revier · Barsch', territory_both:'Revier · Hecht & Barsch'
   };
-  function markerLabel(m){ return m.type==='territory' ? MARKER_LABELS['territory_'+m.subtype] : MARKER_LABELS[m.type]; }
+  function markerLabel(m){ return (m.subtype && MARKER_LABELS[m.type+'_'+m.subtype]) || MARKER_LABELS[m.type]; }
 
   var markersListEl = document.getElementById('markersList');
   var markersChipCount = document.getElementById('markersChipCount');
@@ -1409,6 +1417,7 @@ function initApp(DATA){
   var markerModal = document.getElementById('markerModal');
   var pendingPoint = null;
   var pendingType = null, pendingSub = null;
+  function typeNeedsSubtype(type){ return type === 'territory' || type === 'catch'; }
   function openMarkerModal(clientX, clientY){
     var rect = renderer.domElement.getBoundingClientRect();
     mouseNDC.x = ((clientX-rect.left)/rect.width)*2 - 1;
@@ -1426,7 +1435,7 @@ function initApp(DATA){
     if (markerModal){
       markerModal.querySelectorAll('.mtype-btn').forEach(function(b){ b.classList.remove('selected'); });
       markerModal.querySelectorAll('.msub-btn').forEach(function(b){ b.classList.remove('selected'); });
-      var subRow = document.getElementById('territorySubRow');
+      var subRow = document.getElementById('subtypeRow');
       if (subRow) subRow.hidden = true;
       var saveBtn = document.getElementById('markerSave');
       if (saveBtn) saveBtn.disabled = true;
@@ -1445,9 +1454,9 @@ function initApp(DATA){
         markerModal.querySelectorAll('.mtype-btn').forEach(function(b){ b.classList.remove('selected'); });
         btn.classList.add('selected');
         pendingType = btn.getAttribute('data-mtype');
-        var subRow = document.getElementById('territorySubRow');
+        var subRow = document.getElementById('subtypeRow');
         var saveBtn = document.getElementById('markerSave');
-        if (pendingType === 'territory'){
+        if (typeNeedsSubtype(pendingType)){
           if (subRow) subRow.hidden = false;
           pendingSub = null;
           markerModal.querySelectorAll('.msub-btn').forEach(function(b){ b.classList.remove('selected'); });
@@ -1471,7 +1480,7 @@ function initApp(DATA){
     var saveBtnEl = document.getElementById('markerSave');
     if (saveBtnEl) saveBtnEl.addEventListener('click', function(){
       if (!pendingPoint || !pendingType) return;
-      if (pendingType === 'territory' && !pendingSub) return;
+      if (typeNeedsSubtype(pendingType) && !pendingSub) return;
       var descEl = document.getElementById('markerDesc');
       var desc = descEl ? descEl.value.trim() : '';
       addMarker(pendingType, pendingSub, pendingPoint.x, pendingPoint.z, pendingPoint.idx, desc);
