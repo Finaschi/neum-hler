@@ -707,18 +707,45 @@
   }
   function fmt1(n){ return n.toLocaleString('de-DE', {minimumFractionDigits:1, maximumFractionDigits:1}); }
 
-  // ---------- geo-reference ----------
-  // Anchor: lake centroid (from our reconstructed shape) <-> published centre coordinate.
-  // This is an approximation (single-point anchor + map's own north-up orientation & scale),
-  // not a full multi-point georeferencing — good enough for an on-map "you are here" indicator.
-  var LAT0 = 53.64361, LON0 = 11.33722;
-  var CENTROID_X = 42.94, CENTROID_Z = -147.90; // world coords of that anchor on our terrain
+  // ---------- geo-reference (two-point calibration) ----------
+  // The lake's NW and SE tips, each pinned to both a world-space coordinate
+  // (the reconstructed shoreline's own extremities) and a real lat/lon
+  // (read off Google Maps). Two points let us solve for rotation and scale,
+  // not just position — a single anchor point can't detect orientation
+  // error at all, which is what made the original one-point version drift
+  // once you got any distance from its anchor.
+  var LAT0 = 53.66016666666667, LON0 = 11.29875; // NW tip (kept as LAT0/LON0 name for compatibility)
+  var ANCHOR_A_WORLD = { x: -2064.4085, z: -1952.544 };
+  var ANCHOR_B_GEO = { lat: 53.6245, lon: 11.360111111111111 }; // SE tip
+  var ANCHOR_B_WORLD = { x: 2064.4085, z: 1972.883 };
+
   var M_PER_DEG_LAT = 111320;
-  var M_PER_DEG_LON = 111320 * Math.cos(LAT0 * Math.PI/180);
+  var LAT_REF = (LAT0 + ANCHOR_B_GEO.lat) / 2;
+  var M_PER_DEG_LON = 111320 * Math.cos(LAT_REF * Math.PI/180);
+
+  function geoToEN(lat, lon){ // local east/north meters, relative to anchor A (the NW tip)
+    return { e: (lon - LON0) * M_PER_DEG_LON, n: (lat - LAT0) * M_PER_DEG_LAT };
+  }
+  var _gB = geoToEN(ANCHOR_B_GEO.lat, ANCHOR_B_GEO.lon);
+  var _wBX = ANCHOR_B_WORLD.x - ANCHOR_A_WORLD.x;
+  var _wBY = -(ANCHOR_B_WORLD.z - ANCHOR_A_WORLD.z); // world Y = -z, so (x,Y) behaves like (east,north)
+  var GEO_SCALE = Math.hypot(_gB.e, _gB.n) / Math.hypot(_wBX, _wBY); // real meters per world unit
+  var GEO_ROT = Math.atan2(_gB.n, _gB.e) - Math.atan2(_wBY, _wBX);   // world-frame rotation vs true north
+
   function geoToWorld(lat, lon){
-    var dN = (lat - LAT0) * M_PER_DEG_LAT;
-    var dE = (lon - LON0) * M_PER_DEG_LON;
-    return { x: CENTROID_X + dE, z: CENTROID_Z - dN };
+    var en = geoToEN(lat, lon);
+    var cos = Math.cos(-GEO_ROT), sin = Math.sin(-GEO_ROT);
+    var X = (en.e*cos - en.n*sin) / GEO_SCALE;
+    var Y = (en.e*sin + en.n*cos) / GEO_SCALE;
+    return { x: ANCHOR_A_WORLD.x + X, z: ANCHOR_A_WORLD.z - Y };
+  }
+  function worldToGeo(x, z){
+    var X = x - ANCHOR_A_WORLD.x;
+    var Y = -(z - ANCHOR_A_WORLD.z);
+    var cos = Math.cos(GEO_ROT), sin = Math.sin(GEO_ROT);
+    var e = (X*cos - Y*sin) * GEO_SCALE;
+    var n = (X*sin + Y*cos) * GEO_SCALE;
+    return { lat: LAT0 + n/M_PER_DEG_LAT, lon: LON0 + e/M_PER_DEG_LON };
   }
 
   // ---------- scene setup ----------
@@ -1371,14 +1398,9 @@
   // =====================================================================
   //  REAL-WORLD 2D MAP (OpenStreetMap, via Leaflet) — free, no API key.
   //  Shows the reconstructed shoreline (derived from the same elevation
-  //  grid as the 3D terrain) against the real map, plus the live GPS dot,
-  //  so the single-point-anchor georeferencing can be sanity-checked.
+  //  grid as the 3D terrain) against the real map, plus the live GPS dot.
+  //  worldToGeo() is defined above, next to geoToWorld().
   // =====================================================================
-  function worldToGeo(x, z){
-    var dE = x - CENTROID_X;
-    var dN = CENTROID_Z - z;
-    return { lat: LAT0 + dN / M_PER_DEG_LAT, lon: LON0 + dE / M_PER_DEG_LON };
-  }
   function buildShorelinePoints(){
     var pts = [];
     for (var row = 0; row < GH; row++){
@@ -1400,16 +1422,21 @@
   var leafletMap = null, leafletGpsMarker = null, leafletGpsCircle = null;
   function initLeafletMap(){
     if (leafletMap || typeof L === 'undefined') return;
-    leafletMap = L.map('leafletMap').setView([LAT0, LON0], 13);
+    leafletMap = L.map('leafletMap');
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
     }).addTo(leafletMap);
-    buildShorelinePoints().forEach(function(g){
-      L.circleMarker([g.lat, g.lon], { radius:2, color:'#2fb7c9', weight:0, fillOpacity:0.85 }).addTo(leafletMap);
+    var shoreLatLngs = buildShorelinePoints().map(function(g){ return [g.lat, g.lon]; });
+    shoreLatLngs.forEach(function(ll){
+      L.circleMarker(ll, { radius:2, color:'#2fb7c9', weight:0, fillOpacity:0.85 }).addTo(leafletMap);
     });
+    if (shoreLatLngs.length) leafletMap.fitBounds(shoreLatLngs, { padding:[24,24] });
+    else leafletMap.setView([LAT0, LON0], 13);
     L.circleMarker([LAT0, LON0], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
-      .addTo(leafletMap).bindTooltip('Anker (Kartenzentrum)');
+      .addTo(leafletMap).bindTooltip('Referenzpunkt (NW-Spitze)');
+    L.circleMarker([ANCHOR_B_GEO.lat, ANCHOR_B_GEO.lon], { radius:5, color:'#f4e98c', weight:2, fillColor:'#f4e98c', fillOpacity:0.9 })
+      .addTo(leafletMap).bindTooltip('Referenzpunkt (SO-Spitze)');
   }
   function updateMapGpsMarker(w, acc){
     if (!leafletMap) return;
