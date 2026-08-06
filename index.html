@@ -394,11 +394,11 @@
     height:12px;
     border-radius:4px;
     background: linear-gradient(to right,
-      rgb(188,192,216), rgb(174,177,210), rgb(161,162,205), rgb(149,147,200),
-      rgb(138,134,193), rgb(127,121,185), rgb(117,110,176), rgb(108, 99,165),
-      rgb( 99, 90,155), rgb( 90, 82,144), rgb( 82, 74,132), rgb( 73, 66,121),
-      rgb( 65, 59,109), rgb( 58, 53, 98), rgb( 51, 47, 86), rgb( 45, 41, 74),
-      rgb( 39, 35, 62), rgb( 35, 32, 55));
+      rgb(213,193,230), rgb(201,178,224), rgb(188,163,219), rgb(174,148,214),
+      rgb(160,132,209), rgb(144,117,205), rgb(127,101,200), rgb(109, 84,196),
+      rgb( 90, 68,192), rgb( 75, 59,180), rgb( 63, 53,166), rgb( 51, 47,152),
+      rgb( 42, 42,137), rgb( 36, 41,122), rgb( 31, 38,107), rgb( 26, 35, 92),
+      rgb( 21, 31, 76), rgb( 16, 26, 60));
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
   }
   .legend-scale{
@@ -912,31 +912,34 @@ function initApp(DATA){
   var STOPS_REF_MAX = 17.1;
   var lakeMaxDepth = (DATA.stats && DATA.stats.tmax) ? DATA.stats.tmax : STOPS_REF_MAX;
   var depthScale = lakeMaxDepth / STOPS_REF_MAX;
+  // Hue drifts warm violet-magenta (shallow) -> cool indigo-blue (deep), not
+  // just lightness, so adjacent depth bands are actually distinguishable at
+  // a glance instead of reading as one flat wash (2026-08-06 contrast pass).
   var stops = [
-    [0.5 , 188,192,216],
-    [1.5 , 174,177,210],
-    [2.5 , 161,162,205],
-    [3.5 , 149,147,200],
-    [4.5 , 138,134,193],
-    [5.5 , 127,121,185],
-    [6.5 , 117,110,176],
-    [7.5 , 108, 99,165],
-    [8.5 ,  99, 90,155],
-    [9.5 ,  90, 82,144],
-    [10.5,  82, 74,132],
-    [11.5,  73, 66,121],
-    [12.5,  65, 59,109],
-    [13.5,  58, 53, 98],
-    [14.5,  51, 47, 86],
-    [15.5,  45, 41, 74],
-    [16.5,  39, 35, 62],
-    [17.1,  35, 32, 55]
+    [0.5 , 213,193,230],
+    [1.5 , 201,178,224],
+    [2.5 , 188,163,219],
+    [3.5 , 174,148,214],
+    [4.5 , 160,132,209],
+    [5.5 , 144,117,205],
+    [6.5 , 127,101,200],
+    [7.5 , 109, 84,196],
+    [8.5 ,  90, 68,192],
+    [9.5 ,  75, 59,180],
+    [10.5,  63, 53,166],
+    [11.5,  51, 47,152],
+    [12.5,  42, 42,137],
+    [13.5,  36, 41,122],
+    [14.5,  31, 38,107],
+    [15.5,  26, 35, 92],
+    [16.5,  21, 31, 76],
+    [17.1,  16, 26, 60]
   ].map(function(s){ return [s[0]*depthScale, s[1], s[2], s[3]]; });
   function depthColor(depth){
     var t = -depth; // positive depth magnitude
     if (t <= stops[0][0]){
       var f = t/stops[0][0];
-      return lerpC([195,199,219], stops[0].slice(1), Math.max(0,f));
+      return lerpC([230,222,237], stops[0].slice(1), Math.max(0,f));
     }
     for (var i=0;i<stops.length-1;i++){
       if (t >= stops[i][0] && t <= stops[i+1][0]){
