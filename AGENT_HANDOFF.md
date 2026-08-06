@@ -895,6 +895,31 @@ event simulation.
 - `sw.js` cache bumped to `nms-shell-v7` for this change (bump it again
   on the next `index.html`-touching change too).
 
+## Zoom felt capped ("kept at a distance") — BUILT (2026-08-06)
+
+User: "I can not always zoom in properly but rather it feel like I am kept
+at distance." Root cause: `controls.minDistance = dist*0.08` (`dist` =
+the lake's longest world-space dimension). For a large lake like
+Neumühler (`dist` ≈ 5070), that's a hard floor of ~406 world-units —
+scrolling/pinching further simply does nothing once you hit it, which
+reads as "stuck," not "fully zoomed in." Confirmed via a real
+`WheelEvent` dispatch at the canvas (not `page.mouse.wheel()`, which
+doesn't reliably drive OrbitControls in headless swiftshader): camera
+distance to target dropped from ~5411 to exactly `minDistance` after 60
+notches and then stopped, matching the reported symptom exactly.
+
+Fixed by lowering `minDistance` to `dist*0.025` (~3.2x closer — checked
+across all 20 lakes' `cellSize`/`gw`/`gh`, this stays a comfortable
+6-7 grid-cells' radius even on the coarsest-resolution lake, so it
+shouldn't let the camera clip through terrain). Also bumped
+`controls.zoomSpeed` from the OrbitControls default (`1`) to `1.4`,
+since the zoom range (`maxDistance`/`minDistance` ≈ 88x on Neumühler) is
+large enough that reaching the old, let alone the new, closer limit took
+a lot of scroll/pinch input — part of what likely read as "kept at a
+distance" too.
+
+- `sw.js` cache bumped to `nms-shell-v8` for this change.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated
