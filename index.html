@@ -212,6 +212,17 @@
   .gps-status.ok{ color:#79d9a0; }
   .gps-status.warn{ color:#e8c063; }
   .gps-status.err{ color:#e88888; }
+  .nearest-lake-suggest{
+    margin-top:8px;
+    padding:9px 10px;
+    background:rgba(47,183,201,0.1);
+    border:1px solid rgba(47,183,201,0.35);
+    border-radius:9px;
+    font-size:11.5px;
+    color:var(--ink);
+  }
+  .nearest-lake-actions{ display:flex; gap:6px; margin-top:7px; }
+  .nearest-lake-actions .ctrl{ flex:1; padding:7px 8px; font-size:11.5px; }
 
   #measurePanel{
     bottom:22px; right:22px;
@@ -696,6 +707,13 @@
       <span class="switch"><input type="checkbox" id="gpsToggle"><span class="slider-pill"></span></span>
     </label>
     <div id="gpsStatus" class="gps-status"></div>
+    <div id="nearestLakeSuggest" class="nearest-lake-suggest" hidden>
+      <span id="nearestLakeText"></span>
+      <div class="nearest-lake-actions">
+        <button class="ctrl" id="nearestLakeSwitch"></button>
+        <button class="ctrl" id="nearestLakeDismiss">Nicht jetzt</button>
+      </div>
+    </div>
     <div class="btnrow">
       <button class="ctrl" id="btnTop">Draufsicht</button>
       <button class="ctrl" id="btnReset">Zurücksetzen</button>
@@ -1629,6 +1647,59 @@ function initApp(DATA){
     gpsStatus.className = 'gps-status' + (kind ? (' '+kind) : '');
   }
 
+  // ---------- nearest-lake suggestion ----------
+  // When GPS puts you well outside the currently-loaded lake, check
+  // whether you're actually near a *different* one of the 20 lakes and
+  // offer to switch — instead of always defaulting to whichever lake
+  // happened to load last. Distance is to each lake's centroid (see
+  // LAKES' lat/lon, computed at bake time), which is an approximation —
+  // fine for "which of 20 lakes am I probably at", not precise enough for
+  // anything else.
+  var NEAREST_SUGGEST_THRESHOLD_M = 6000;
+  var dismissedNearestLakeId = null;
+  var nearestLakeSuggestEl = document.getElementById('nearestLakeSuggest');
+  var nearestLakeTextEl = document.getElementById('nearestLakeText');
+  var nearestLakeSwitchBtn = document.getElementById('nearestLakeSwitch');
+  var nearestLakeDismissBtn = document.getElementById('nearestLakeDismiss');
+
+  function nearestLake(lat, lon){
+    var best = null, bestDist = Infinity;
+    LAKES.forEach(function(l){
+      var dlat = (lat - l.lat) * 111320;
+      var dlon = (lon - l.lon) * 111320 * Math.cos(lat * Math.PI/180);
+      var d = Math.sqrt(dlat*dlat + dlon*dlon);
+      if (d < bestDist){ bestDist = d; best = l; }
+    });
+    return { lake: best, distM: bestDist };
+  }
+  function hideNearestLakeSuggest(){
+    if (nearestLakeSuggestEl) nearestLakeSuggestEl.hidden = true;
+  }
+  function checkNearestLake(lat, lon){
+    var nearest = nearestLake(lat, lon);
+    if (!nearest.lake || nearest.lake.id === DATA.id ||
+        nearest.distM >= NEAREST_SUGGEST_THRESHOLD_M ||
+        nearest.lake.id === dismissedNearestLakeId){
+      hideNearestLakeSuggest();
+      return;
+    }
+    var distKm = (nearest.distM/1000).toFixed(1).replace('.', ',');
+    nearestLakeTextEl.textContent = 'Du bist näher an ' + nearest.lake.name + ' (≈' + distKm + ' km)';
+    nearestLakeSwitchBtn.textContent = 'Zu ' + nearest.lake.name + ' wechseln';
+    nearestLakeSwitchBtn._targetLakeId = nearest.lake.id;
+    nearestLakeSuggestEl.hidden = false;
+  }
+  if (nearestLakeSwitchBtn) nearestLakeSwitchBtn.addEventListener('click', function(){
+    if (nearestLakeSwitchBtn._targetLakeId){
+      setCurrentLakeId(nearestLakeSwitchBtn._targetLakeId);
+      location.reload();
+    }
+  });
+  if (nearestLakeDismissBtn) nearestLakeDismissBtn.addEventListener('click', function(){
+    dismissedNearestLakeId = nearestLakeSwitchBtn._targetLakeId || null;
+    hideNearestLakeSuggest();
+  });
+
   // Live "depth where I currently am" — reuses the Messpunkt panel's own
   // display, but only while the user hasn't manually tapped a point (a
   // manual tap always wins and stays shown, same as before).
@@ -1664,8 +1735,10 @@ function initApp(DATA){
     if (outside){
       var distKm = Math.sqrt(w.x*w.x+w.z*w.z)/1000; // rough distance from anchor, informational
       setGpsStatus('Außerhalb des Kartenausschnitts (≈' + distKm.toFixed(1).replace('.',',') + ' km vom Zentrum) · ±' + Math.round(acc) + ' m', 'warn');
+      checkNearestLake(lat, lon);
     } else {
       setGpsStatus('Position gefunden · Genauigkeit ±' + Math.round(acc) + ' m', 'ok');
+      hideNearestLakeSuggest();
     }
     updateMapGpsMarker(w, acc);
     if (!outside) updateGpsDepthReadout(w);
@@ -1680,6 +1753,7 @@ function initApp(DATA){
     gpsToggle.checked = false;
     updateMapGpsMarker(null);
     resetGpsDepthReadout();
+    hideNearestLakeSuggest();
   }
 
   gpsToggle.addEventListener('change', function(e){
@@ -1699,6 +1773,7 @@ function initApp(DATA){
       setGpsStatus('', '');
       updateMapGpsMarker(null);
       resetGpsDepthReadout();
+      hideNearestLakeSuggest();
     }
   });
 
