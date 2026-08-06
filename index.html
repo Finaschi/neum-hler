@@ -2124,6 +2124,19 @@ function initApp(DATA){
   }
   loadWeather();
 
+  // iOS "Add to Home Screen" apps are often resumed from a frozen memory
+  // snapshot instead of a real reload/navigation, so code that only runs
+  // once at load time (fetching markers, weather) never re-runs when the
+  // user reopens the app from the home screen icon. Re-fetch whenever the
+  // page actually becomes visible again to keep it in sync with a normal
+  // Safari reload.
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible'){
+      loadMarkers();
+      loadWeather();
+    }
+  });
+
   // ---------- UI wiring ----------
   var exagSlider = document.getElementById('exagSlider');
   var exagVal = document.getElementById('exagVal');
