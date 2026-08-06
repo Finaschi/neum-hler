@@ -162,16 +162,62 @@ writes `data/lakes/<slug>.json`. What it does:
    `FIT_TY` are always 0 by construction (grid origin = `LAT_REF`/`LON_REF`
    exactly).
 
-Baked so far: `neumuehler`, `cramoner`, `duemmer`, `medeweg`, `nedder`,
-`schwerin_aussen`, `schwerin_innen`, `cambs`, `pinnow` (all near Schwerin,
-user-requested). To add another lake: confirm it has `see_verm=3` (fully
-surveyed) in the `sg` layer first — about 1600 of the ~2459 MV lakes don't,
-and the user explicitly wants those left out of the picker rather than
-shown with a fabricated fallback shape — then run the bake script and add
-the lake to the `LAKES` array in `index.html` (`~line 825`, both places if
-you touch the picker UI).
+Baked so far (20 lakes): `neumuehler`, `cramoner`, `duemmer`, `medeweg`,
+`nedder`, `schwerin_aussen`, `schwerin_innen`, `cambs`, `pinnow`, `ziegelsee`,
+`heidensee`, `ostorfer_ober`, `ostorfer_unter`, `fauler`, `lankow`, `rugen`,
+`trebbow`, `kirchstueck`, `wendelstorf`, `grosseichsen` (all near Schwerin,
+user-requested — this was explicitly "that's all for the foreseeable
+future" per the user, so don't go looking for more to add unprompted). To
+add another lake: confirm it has `see_verm=3` (fully surveyed) in the `sg`
+layer first — about 1600 of the ~2459 MV lakes don't, and the user
+explicitly wants those left out of the picker rather than shown with a
+fabricated fallback shape — then run the bake script and add the lake to
+the `LAKES` array in `index.html` (`~line 825`; each entry needs `lat`/`lon`
+too now, the lake's own centroid — used by the nearest-lake GPS feature,
+see below — computed via a simple shoelace-formula polygon centroid over
+`shoreline`, not just averaging the points).
 
-**Two gotchas hit adding the second batch of lakes — don't rediscover them:**
+**One lake requested by name genuinely doesn't exist as a separately
+surveyed water body**: "Ziegelinnensee" — checked both the `sg` layer (no
+matching `see_gn`) and the `sg_tl` bands around Ziegelsee's own bbox (no
+such name there either). Told the user rather than silently dropping it or
+guessing at a substitute. If asked about it again, that finding still
+holds unless the WFS service adds new data.
+
+**Three gotchas hit adding the third batch of lakes — don't rediscover them:**
+
+1. **The "pick whichever sg_tl name-group is biggest" fallback (from the
+   second batch) is not safe in dense lake clusters** — it silently grabbed
+   a *completely unrelated* neighboring lake's depth data for both Ostorfer
+   See basins (confirmed by a sanity check: baked max depth 0.23m against
+   an official 4.5m — nowhere close). `fetch_depth_bands()` now requires the
+   target `outline` polygon and picks whichever candidate name-group's
+   geometry actually overlaps *that specific outline*, refusing to proceed
+   (hard error, not a silent bad bake) if the best overlap is under 50%.
+   When you do get an ambiguous-name warning, also double check with a
+   *union of the whole matched group*, not just its shallowest band — a
+   group's shallowest depth level can itself be fragmented into several
+   disconnected pieces, and comparing just one arbitrary fragment
+   undercounts real overlap (this exact mistake produced a false "9%
+   overlap, reject" on a pair that was actually a clean 100% match once
+   fixed to union the whole group first).
+2. Reused from the Pinnower See case: **MV has multiple lakes sharing a
+   name** — "Ostorfer See" itself has two records (`22007`="Oberer",
+   `22002`="Unterer"), and my first *geographic* guess at which was which
+   (closer to Schwerin = "Unterer") was simply wrong — verified correctly
+   only by directly comparing each `sg` record's exact bbox against the
+   `sg_tl` layer's own "Oberer"/"Unterer Ostorfer See" band bboxes (exact
+   match, not fuzzy). Don't guess ober/unter (or similar directional
+   names) from general geography — check the actual band data's own
+   labeled bbox against each candidate record's bbox.
+3. Two more even smaller gotchas: `Rugensee` is one word officially (the
+   user wrote "Rugen see"), and several requested names collided with
+   unrelated same-named lakes elsewhere in MV that had to be filtered out
+   by `see_verm` (unsurveyed) or by checking `stalu`/centroid was nowhere
+   near Schwerin (e.g. 3 of 4 "Heidensee" candidates, 6 of 7 "Fauler See"
+   candidates) — always check `--see-sp` candidates print for a lake name
+   you haven't specifically single-matched already, even ones that don't
+   *look* ambiguous from the user's phrasing.
 
 1. **A lake can be stored as multiple disconnected polygon parts.**
    Schweriner See is really two basins (Innensee + Außensee) joined by a

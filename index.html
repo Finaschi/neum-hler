@@ -823,15 +823,26 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var LAKES = [
-  { id:'neumuehler', name:'Neumühler See' },
-  { id:'cramoner', name:'Cramoner See' },
-  { id:'duemmer', name:'Dümmersee' },
-  { id:'medeweg', name:'Medeweger See' },
-  { id:'nedder', name:'Neddersee' },
-  { id:'schwerin_aussen', name:'Schweriner Außensee' },
-  { id:'schwerin_innen', name:'Schweriner Innensee' },
-  { id:'cambs', name:'Cambser See' },
-  { id:'pinnow', name:'Pinnower See' }
+  { id:'cambs', name:'Cambser See', lat:53.67904, lon:11.53362 },
+  { id:'cramoner', name:'Cramoner See', lat:53.70377, lon:11.27163 },
+  { id:'duemmer', name:'Dümmersee', lat:53.58133, lon:11.20073 },
+  { id:'fauler', name:'Fauler See', lat:53.61115, lon:11.42716 },
+  { id:'grosseichsen', name:'Großeichsener See', lat:53.74937, lon:11.26073 },
+  { id:'heidensee', name:'Heidensee', lat:53.64250, lon:11.43128 },
+  { id:'kirchstueck', name:'Kirchstücker See', lat:53.69202, lon:11.40579 },
+  { id:'lankow', name:'Lankower See', lat:53.64001, lon:11.37912 },
+  { id:'medeweg', name:'Medeweger See', lat:53.65661, lon:11.39186 },
+  { id:'nedder', name:'Neddersee', lat:53.71832, lon:11.09824 },
+  { id:'neumuehler', name:'Neumühler See', lat:53.64398, lon:11.32909 },
+  { id:'ostorfer_ober', name:'Oberer Ostorfer See', lat:53.61979, lon:11.38622 },
+  { id:'pinnow', name:'Pinnower See', lat:53.60623, lon:11.52779 },
+  { id:'rugen', name:'Rugensee', lat:53.72471, lon:11.38080 },
+  { id:'schwerin_aussen', name:'Schweriner Außensee', lat:53.72860, lon:11.46715 },
+  { id:'schwerin_innen', name:'Schweriner Innensee', lat:53.63505, lon:11.46659 },
+  { id:'trebbow', name:'Trebbower See', lat:53.71046, lon:11.36585 },
+  { id:'ostorfer_unter', name:'Unterer Ostorfer See', lat:53.60949, lon:11.40351 },
+  { id:'wendelstorf', name:'Wendelstorfer See', lat:53.73765, lon:11.26812 },
+  { id:'ziegelsee', name:'Ziegelsee', lat:53.65660, lon:11.42560 }
 ];
 var LAKE_KEY = 'nms_lake_v1';
 function getCurrentLakeId(){

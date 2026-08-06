@@ -167,7 +167,16 @@ def fetch_lake_record(name, see_sp=None):
     return attrs, geom, parts
 
 
-def fetch_depth_bands(name, bbox, clip_geom=None):
+def fetch_depth_bands(name, bbox, outline, clip_geom=None):
+    """outline is the specific sg-layer polygon we're baking — required to
+    disambiguate when the padded bbox catches multiple lakes' sg_tl bands
+    (common in dense lake chains like the Schwerin area). Picking "whichever
+    name group is biggest" is NOT safe here: it has silently grabbed a
+    completely unrelated neighboring lake's depth data before (e.g. two
+    similarly-sized Ostorfer See basins a few hundred meters apart — the
+    naive largest-group heuristic picked "Fauler See" for one of them,
+    giving a max depth of 0.23m against an official 4.5m). Instead, pick
+    whichever name group's own geometry actually overlaps this outline."""
     lox, loy, hix, hiy = bbox
     xml = wfs_get({
         "SERVICE": "WFS", "REQUEST": "GetFeature", "VERSION": "1.1.0",
@@ -192,10 +201,29 @@ def fetch_depth_bands(name, bbox, clip_geom=None):
     elif len(by_name) == 0:
         bands = []
     else:
-        # multiple distinct names inside the padded bbox: pick the largest group
-        only_name = max(by_name, key=lambda k: len(by_name[k]))
-        bands = by_name[only_name]
-        print(f"  WARNING: multiple lake names in bbox {list(by_name.keys())}, using '{only_name}'")
+        # multiple distinct names inside the padded bbox: pick whichever
+        # group's geometry actually overlaps *this* lake's outline, not
+        # just whichever group happens to be biggest. Union the *whole*
+        # group (not just its shallowest band) before measuring overlap —
+        # a group's shallowest depth level can itself be split into
+        # multiple disconnected fragments, and grabbing just one arbitrary
+        # fragment badly undercounts real overlap.
+        scored = []
+        for gname, gbands in by_name.items():
+            whole_group = unary_union([g for (_v, _b, g) in gbands])
+            overlap = whole_group.intersection(outline).area / outline.area if outline.area else 0
+            scored.append((overlap, gname, gbands))
+        scored.sort(key=lambda t: -t[0])
+        best_overlap, only_name, bands = scored[0]
+        if best_overlap < 0.5:
+            raise SystemExit(
+                f"Could not confidently match sg_tl depth bands to this lake's outline — "
+                f"best candidate '{only_name}' only overlaps {best_overlap:.0%}. "
+                f"Candidates found: {[(n, f'{o:.0%}') for o, n, _ in scored]}. "
+                f"Try a tighter/more specific bbox or check the lake manually."
+            )
+        print(f"  multiple lake names in bbox {list(by_name.keys())} — matched by overlap: "
+              f"'{only_name}' ({best_overlap:.0%} overlap with this lake's outline)")
 
     if clip_geom is not None:
         clipped = []
@@ -367,7 +395,7 @@ def main():
     bbox_pad = pad + 50
     bands = fetch_depth_bands(
         name, (e_min0 - bbox_pad, n_min0 - bbox_pad, e_max0 + bbox_pad, n_max0 + bbox_pad),
-        clip_geom=clip_geom,
+        outline, clip_geom=clip_geom,
     )
     print(f"[{slug}] {len(bands)} depth bands found")
 
