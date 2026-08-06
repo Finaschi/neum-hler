@@ -96,6 +96,37 @@ description you type when placing a marker won't actually be saved (it'll
 show locally on your device until the next sync, then quietly disappear
 once the server confirms the save without it).
 
+## 3c. Backend update for marker photos
+
+You can now attach a photo when placing a marker ("Foto hinzufügen" in the
+marker dialog). This needs one thing the earlier updates didn't: a place to
+actually store the uploaded images (a "Storage bucket"), on top of the same
+kind of database + Edge Function update as before.
+
+1. **Storage bucket**: in the Supabase dashboard, click **Storage** in the
+   left sidebar, then **New bucket**.
+   - Name it exactly `marker-photos` (the code looks for this exact name).
+   - Toggle **Public bucket** to **ON**. This just means anyone with the
+     exact photo URL can view that one photo (URLs aren't guessable) —
+     nobody can browse or list your photos, and nobody can *upload* without
+     the PIN, same as everything else in this app.
+   - Click **Create bucket**. Nothing else to configure.
+
+2. **Database**: open **SQL Editor → New query**, paste this, and run it:
+   ```sql
+   alter table public.markers add column if not exists photo_url text;
+   ```
+
+3. **Edge Function**: same as before — open **Edge Functions**, open your
+   function (`dynamic-task` slug / "markers-api" display name), replace all
+   its code with the current contents of
+   [`supabase/functions/markers-api/index.ts`](supabase/functions/markers-api/index.ts),
+   and deploy.
+
+If you skip this, adding a marker still works, but tapping "Foto
+hinzufügen" and saving will show "Foto-Upload fehlgeschlagen" — the marker
+itself still saves fine, just without the photo.
+
 ## 4. Installing it on an iPhone (no App Store)
 
 Once the site is live at its GitHub Pages URL:

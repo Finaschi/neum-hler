@@ -426,6 +426,70 @@ visible chip/panel for title/controls/legend/measure/markers/hint at
 before shipping any HUD/layout change; it's caught real regressions
 multiple times.
 
+## Recurring gotcha: `element.hidden = true/false` vs. a CSS rule with unconditional `display:`
+
+Hit **three times** across this project (`.marker-sub-row`, `button.ctrl.
+photo-btn`, `.marker-detail-photo`) before it got a name. The HTML `hidden`
+attribute and a class selector both have specificity (0,1,0) — a tie — but
+origin wins over specificity: `[hidden]{display:none}` is a User-Agent
+(browser default) rule, so ANY same-or-lower-specificity author rule with
+an unconditional `display:` (flex/block/whatever) beats it regardless of
+which one is declared later in the stylesheet. Net effect: toggling
+`el.hidden = true` in JS does nothing visually if that element (or its
+class) has its own `display:` rule anywhere in the stylesheet — the
+element stays fully visible, `hidden` attribute correctly set on the DOM
+node and all, completely invisible to a naive DOM inspection unless you
+specifically check computed style.
+
+**Standing rule for this codebase**: any CSS selector that also targets an
+element toggled via `.hidden` in JS must scope its `display:` declaration
+to `:not([hidden])` — e.g. `.foo:not([hidden]){ display:flex; }` — never
+just `.foo{ display:flex; }`. Before adding any new `hidden`-toggled
+element, grep the stylesheet for that element's id/class and check for a
+bare `display:` rule; don't wait to notice it visually (all three
+instances rendered "successfully" in the sense that nothing threw — they
+just silently stayed on-screen when they shouldn't have, only caught by
+actually looking at a screenshot, not by the automated pass/fail checks).
+
+## Photos on markers, nearest-lake GPS suggestion, marker type filter — BUILT (2026-08-06)
+
+Three independent features, no interaction between them:
+
+- **Photos**: "Foto hinzufügen" in the marker-creation modal opens the
+  device's file/camera picker (`<input type=file accept=image/*
+  capture=environment>`), the image is resized client-side (canvas, longer
+  side capped at 1280px, JPEG quality 0.72 — a 2000×1500 test photo came
+  out ~8KB) via `compressImageFile()`, base64-encoded, and sent as a
+  *follow-up* request after the marker itself is created (needs the
+  confirmed server-assigned marker id first, not the optimistic temp id) to
+  a new Edge Function route `POST /markers-api/<id>/photo`. That route
+  base64-decodes, uploads to a Storage bucket named exactly `marker-photos`
+  (must be created + set Public via the dashboard — not something doable
+  from SQL alone in every Supabase setup, see `BACKEND_SETUP.md` §3c),
+  updates the marker's new `photo_url` column, and returns the public URL.
+  Shown in the marker detail modal (`#detailPhoto`) if present; not shown
+  in the "Meine Marker" list (scope decision, not a bug — list stays
+  compact). Photo upload failure is non-fatal — the marker itself still
+  saves, only the photo silently fails with a status-line message. No
+  automatic cleanup of a marker's photo in Storage when the marker itself
+  is deleted (minor known gap, acceptable for now — a small storage-usage
+  leak, not a correctness issue).
+- **Nearest-lake GPS suggestion**: `LAKES` entries now carry `lat`/`lon`
+  (each lake's polygon centroid, shoelace formula over `shoreline` — good
+  enough for "which of 20 lakes is this probably," not precision
+  positioning). When live GPS puts you outside the current lake's own
+  extent, `checkNearestLake()` finds the closest lake by straight-line
+  distance to centroid and offers a one-tap switch if within 6km,
+  dismissible per-lake for the rest of the session (`dismissedNearestLakeId`
+  — resets on reload, intentionally, not persisted).
+- **Marker type filter**: icon-pill row (`#markerFilterRow`, reuses the
+  same `pinIconFor()` glyphs as the map pins) in "Meine Marker" filters
+  *both* the list and the 3D pins' visibility together
+  (`updateMarkerPinVisibility()`, called from inside `renderMarkerList()`
+  so every existing call site gets it for free) — deliberately not just a
+  list-only filter, since leaving non-matching pins visible on the map
+  while the list hides them would be a confusing mismatch.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated

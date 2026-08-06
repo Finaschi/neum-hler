@@ -11,6 +11,9 @@
 // Routes:
 //   GET    /markers-api?lake_id=<id>  -> { markers: [...] }  (markers for that lake only)
 //   POST   /markers-api               -> body { type, subtype, x, z, idx, lake_id, description } -> { marker }
+//   POST   /markers-api/<id>/photo    -> body { photo: <base64, no data: prefix> } -> { photo_url }
+//                                         uploads to the "marker-photos" Storage bucket (must be
+//                                         created + set Public in the dashboard, see BACKEND_SETUP.md)
 //   DELETE /markers-api/<id>          -> { ok: true }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -46,8 +49,43 @@ Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean);
-  // parts is like ["markers-api"] or ["markers-api", "<id>"]
-  const id = parts.length > 1 ? parts[parts.length - 1] : null;
+  // parts is like ["markers-api"], ["markers-api", "<id>"], or
+  // ["markers-api", "<id>", "photo"]
+  const isPhotoRoute = parts.length >= 2 && parts[parts.length - 1] === "photo";
+  const id = isPhotoRoute
+    ? parts[parts.length - 2]
+    : (parts.length > 1 ? parts[parts.length - 1] : null);
+
+  if (req.method === "POST" && isPhotoRoute) {
+    if (!id) return json({ error: "Marker-ID fehlt" }, 400);
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body.photo !== "string" || !body.photo) {
+      return json({ error: "Kein Foto übergeben" }, 400);
+    }
+    let bytes: Uint8Array;
+    try {
+      const binStr = atob(body.photo);
+      bytes = new Uint8Array(binStr.length);
+      for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+    } catch {
+      return json({ error: "Ungültiges Foto-Format" }, 400);
+    }
+    if (bytes.length > 5 * 1024 * 1024) {
+      return json({ error: "Foto zu groß (max. 5 MB)" }, 400);
+    }
+    const path = `${id}-${Date.now()}.jpg`;
+    const { error: upErr } = await supabase.storage
+      .from("marker-photos")
+      .upload(path, bytes, { contentType: "image/jpeg", upsert: true });
+    if (upErr) return json({ error: upErr.message }, 500);
+    const { data: pub } = supabase.storage.from("marker-photos").getPublicUrl(path);
+    const { error: updErr } = await supabase
+      .from("markers")
+      .update({ photo_url: pub.publicUrl })
+      .eq("id", id);
+    if (updErr) return json({ error: updErr.message }, 500);
+    return json({ photo_url: pub.publicUrl });
+  }
 
   if (req.method === "GET") {
     const lakeId = url.searchParams.get("lake_id");

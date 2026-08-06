@@ -12,6 +12,7 @@ create table if not exists public.markers (
   idx integer not null,
   lake_id text not null default 'neumuehler',
   description text,
+  photo_url text,
   created_at timestamptz not null default now()
 );
 
@@ -25,6 +26,12 @@ create index if not exists markers_lake_id_idx on public.markers (lake_id);
 -- Free-text marker notes: run this against an existing database that
 -- predates the description column (safe to re-run).
 alter table public.markers add column if not exists description text;
+
+-- Marker photos: run this against an existing database that predates the
+-- photo_url column (safe to re-run). Also requires a Storage bucket named
+-- "marker-photos" (Public) — see BACKEND_SETUP.md §3c, this can't be
+-- created via SQL in every Supabase setup, do it from the dashboard.
+alter table public.markers add column if not exists photo_url text;
 
 -- RLS is enabled with NO policies attached on purpose: the anon/public API
 -- key therefore has zero direct access to this table. The only way in is

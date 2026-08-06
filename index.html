@@ -527,6 +527,29 @@
   }
   .marker-desc::placeholder{ color:var(--ink-dim); }
   .marker-desc:focus{ border-color:var(--accent-teal); }
+  .marker-photo-row{ margin-top:10px; }
+  button.ctrl.photo-btn:not([hidden]){
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    width:100%;
+  }
+  .marker-photo-preview{ position:relative; width:100%; }
+  .marker-photo-preview img{
+    width:100%; max-height:160px; object-fit:cover;
+    border-radius:9px; display:block;
+    border:1px solid var(--panel-border);
+  }
+  .marker-photo-preview #markerPhotoRemove{
+    position:absolute; top:7px; right:7px;
+    width:26px; height:26px; border:none; border-radius:50%;
+    background:rgba(5,11,16,0.72); color:#fff; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; font-size:13px;
+  }
+  .marker-detail-photo:not([hidden]){
+    width:100%; max-height:220px; object-fit:cover;
+    border-radius:9px; margin-top:10px; display:block;
+    border:1px solid var(--panel-border);
+    background:rgba(255,255,255,0.04);
+  }
   .marker-item-desc{
     display:block;
     font-size:11px;
@@ -823,6 +846,17 @@
       <button class="msub-btn" data-msub="both">Beide</button>
     </div>
     <textarea class="marker-desc" id="markerDesc" maxlength="280" placeholder="Notiz (optional) — z. B. Köder, Wetter, Uhrzeit …"></textarea>
+    <div class="marker-photo-row">
+      <input type="file" accept="image/*" capture="environment" id="markerPhotoInput" hidden>
+      <button type="button" class="ctrl photo-btn" id="markerPhotoBtn">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Foto hinzufügen
+      </button>
+      <div id="markerPhotoPreview" class="marker-photo-preview" hidden>
+        <img id="markerPhotoPreviewImg" alt="">
+        <button type="button" id="markerPhotoRemove" aria-label="Foto entfernen">✕</button>
+      </div>
+    </div>
     <div class="marker-actions">
       <button class="ctrl" id="markerCancel">Abbrechen</button>
       <button class="ctrl primary" id="markerSave" disabled>Speichern</button>
@@ -836,6 +870,7 @@
       <span class="marker-detail-dot" id="detailDot"></span>
       <h2 id="detailLabel">Marker</h2>
     </div>
+    <img id="detailPhoto" class="marker-detail-photo" hidden alt="">
     <div class="marker-detail-desc" id="detailDesc" hidden></div>
     <div class="marker-detail-meta" id="detailMeta" hidden></div>
     <div class="marker-actions">
@@ -1411,7 +1446,7 @@ function initApp(DATA){
       }
     });
   }
-  function addMarker(type, subtype, worldX, worldZ, idx, description){
+  function addMarker(type, subtype, worldX, worldZ, idx, description, photoBase64){
     ensurePin().then(function(pin){
       if (!pin){
         setSyncStatus('err', 'Nicht gespeichert · PIN erforderlich');
@@ -1432,6 +1467,16 @@ function initApp(DATA){
         cacheMarkersLocally();
         setSyncStatus('ok', 'Synchronisiert');
         renderMarkerList();
+        if (photoBase64){
+          setSyncStatus('', 'Lade Foto hoch …');
+          apiRequest('POST', '/' + m.id + '/photo', { photo: photoBase64 }, pin).then(function(photoData){
+            m.photo_url = photoData.photo_url;
+            cacheMarkersLocally();
+            setSyncStatus('ok', 'Synchronisiert');
+          }).catch(function(){
+            setSyncStatus('err', 'Foto-Upload fehlgeschlagen · Marker gespeichert');
+          });
+        }
       }).catch(function(err){
         markers = markers.filter(function(mm){ return mm.id !== tempId; });
         var obj = markerGroup.children.find(function(g){ return g.userData.markerId === tempId; });
@@ -1542,7 +1587,54 @@ function initApp(DATA){
   var markerModal = document.getElementById('markerModal');
   var pendingPoint = null;
   var pendingType = null, pendingSub = null;
+  var pendingPhotoBase64 = null;
   function typeNeedsSubtype(type){ return type === 'territory' || type === 'catch'; }
+
+  // ---------- marker photo picker (resized/compressed client-side before upload) ----------
+  function compressImageFile(file){
+    return new Promise(function(resolve, reject){
+      var objUrl = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function(){
+        URL.revokeObjectURL(objUrl);
+        var maxSide = 1280;
+        var scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        var w = Math.max(1, Math.round(img.width * scale));
+        var h = Math.max(1, Math.round(img.height * scale));
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      img.onerror = function(){ URL.revokeObjectURL(objUrl); reject(new Error('Bild konnte nicht geladen werden')); };
+      img.src = objUrl;
+    });
+  }
+  var markerPhotoInput = document.getElementById('markerPhotoInput');
+  var markerPhotoBtn = document.getElementById('markerPhotoBtn');
+  var markerPhotoPreview = document.getElementById('markerPhotoPreview');
+  var markerPhotoPreviewImg = document.getElementById('markerPhotoPreviewImg');
+  var markerPhotoRemove = document.getElementById('markerPhotoRemove');
+  function resetMarkerPhotoPicker(){
+    pendingPhotoBase64 = null;
+    if (markerPhotoInput) markerPhotoInput.value = '';
+    if (markerPhotoPreview) markerPhotoPreview.hidden = true;
+    if (markerPhotoBtn) markerPhotoBtn.hidden = false;
+  }
+  if (markerPhotoBtn) markerPhotoBtn.addEventListener('click', function(){ markerPhotoInput.click(); });
+  if (markerPhotoInput) markerPhotoInput.addEventListener('change', function(){
+    var file = markerPhotoInput.files && markerPhotoInput.files[0];
+    if (!file) return;
+    compressImageFile(file).then(function(dataUrl){
+      pendingPhotoBase64 = dataUrl.split(',')[1];
+      markerPhotoPreviewImg.src = dataUrl;
+      markerPhotoPreview.hidden = false;
+      markerPhotoBtn.hidden = true;
+    }).catch(function(){
+      resetMarkerPhotoPicker();
+    });
+  });
+  if (markerPhotoRemove) markerPhotoRemove.addEventListener('click', resetMarkerPhotoPicker);
   function openMarkerModal(clientX, clientY){
     var rect = renderer.domElement.getBoundingClientRect();
     mouseNDC.x = ((clientX-rect.left)/rect.width)*2 - 1;
@@ -1566,6 +1658,7 @@ function initApp(DATA){
       if (saveBtn) saveBtn.disabled = true;
       var descEl = document.getElementById('markerDesc');
       if (descEl) descEl.value = '';
+      resetMarkerPhotoPicker();
       markerModal.classList.add('show');
     }
   }
@@ -1608,7 +1701,7 @@ function initApp(DATA){
       if (typeNeedsSubtype(pendingType) && !pendingSub) return;
       var descEl = document.getElementById('markerDesc');
       var desc = descEl ? descEl.value.trim() : '';
-      addMarker(pendingType, pendingSub, pendingPoint.x, pendingPoint.z, pendingPoint.idx, desc);
+      addMarker(pendingType, pendingSub, pendingPoint.x, pendingPoint.z, pendingPoint.idx, desc, pendingPhotoBase64);
       closeMarkerModal();
     });
     var cancelBtnEl = document.getElementById('markerCancel');
@@ -1631,10 +1724,15 @@ function initApp(DATA){
     detailMarkerId = m.id;
     var dotEl = document.getElementById('detailDot');
     var labelEl = document.getElementById('detailLabel');
+    var photoEl = document.getElementById('detailPhoto');
     var descEl = document.getElementById('detailDesc');
     var metaEl = document.getElementById('detailMeta');
     if (dotEl) dotEl.style.background = markerColorHex(m);
     if (labelEl) labelEl.textContent = markerLabel(m);
+    if (photoEl){
+      if (m.photo_url){ photoEl.src = m.photo_url; photoEl.hidden = false; }
+      else { photoEl.hidden = true; photoEl.removeAttribute('src'); }
+    }
     if (descEl){
       descEl.textContent = m.description || '';
       descEl.hidden = !m.description;
