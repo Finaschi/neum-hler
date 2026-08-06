@@ -797,6 +797,104 @@ in mind for every new `hidden`-toggled element added during this redesign
 them hit the bug this time because the rule was already known going in,
 but keep checking on anything new.
 
+## Depth-contour lines + lower default exaggeration — BUILT (2026-08-06)
+
+User feedback, in two parts:
+- "I still find it very hard to see the actual smaller depth changes" →
+  proposed contour lines (isobaths, on-brand with the logo's nested-rings
+  mark) as the fix, offered a non-linear color-curve stretch as a lighter
+  alternative. User picked contour lines.
+- "the drop off comes way too fast... if I look at the 2d map the drop off
+  is not that super steep" → this is a *separate* issue from the above:
+  vertical exaggeration (`EXAG`, default was `8`) only scales underwater
+  Y position (`applyExaggeration()`: `arr[i*3+1] = e<0 ? e*EXAG : e`), not
+  horizontal (X/Z) spread, so a real gentle slope reads as a near-cliff.
+  Lowered the default to `3` (JS `var EXAG`, the settings slider's
+  `value`/label, and the reset-button handler all changed from `8`/`8×`
+  to `3`/`3×`). The slider's own range is unchanged (`min=1 max=20`), so
+  `8×` is still reachable for anyone who preferred the old look.
+
+### Contour lines: marching squares over the elevation grid
+
+`buildContourLines()` (called once at startup, right after
+`scene.add(terrain)`) runs standard marching squares over the `EL`
+elevation grid at 1m thresholds, from `-1` down to `Math.floor(-minE)`
+(i.e. every whole metre of depth present in the lake). Every 5th line
+(`t % 5 === 0`) is treated as "major" and drawn a bit bolder — same
+"every 5th line bolder" convention as printed nautical charts.
+
+Standard 16-case marching-squares lookup table (`caseIdx` built from the
+4 corner in/out bits), with the two ambiguous saddle cases (5 and 10)
+resolved with a fixed, consistent diagonal choice — good enough for a
+depth-visualization overlay; not trying to be watertight for anything
+that would notice the saddle ambiguity.
+
+Output is two `THREE.LineSegments` (minor/major) grouped under a
+`THREE.Group` (`contourGroup`), added to the scene once. Geometry is
+nudged `+0.15` in local Y (`g.translate(0, 0.15, 0)`) to sit just above
+the terrain surface.
+
+**Exaggeration sync without regenerating geometry**: `applyExaggeration()`
+now also sets `contourGroup.scale.y = EXAG` right after
+`geo.computeVertexNormals()`. This works because every contour threshold
+is negative (underwater) and `applyExaggeration()`'s own rule is
+`e<0 ? e*EXAG : e` — i.e. it's already a uniform per-vertex Y-scale for
+everything underwater, so scaling the whole contour Group by the same
+`EXAG` on its Y axis reproduces exactly what regenerating the contours
+against exaggerated elevations would have produced, at zero extra cost.
+
+### Two rendering bugs found only by isolating the geometry, not by eyeballing color
+
+Screenshots of the first version (flat `0xe9e9ed` near-white line color,
+low opacity) showed *no visible lines at all*, even in a full top-down
+view. Debug hooks (`window.__debugContour`, temporarily added, since
+removed) confirmed the geometry was correct — thousands of real vertices,
+correct scale, `visible:true`, `opacity` as set — so the bug wasn't
+generation, it was rendering. Two separate causes, found by hiding
+terrain/water and rendering the contour group alone (which looked
+perfect — a clean nested-ring isobath map):
+
+1. **Color contrast**: the shallow end of the depth ramp is
+   `[230,222,237]` — nearly identical to the flat line color `0xe9e9ed`.
+   Most contour lines cluster near shore (shallowest water), so most
+   lines were blending into a near-identical background regardless of
+   opacity. Fixed by computing line color per-threshold from the ramp's
+   own luminance (`lineColorFor(thresh)` in `buildContourLines`): dark
+   near-black on the light/shallow half of the ramp, light near-white on
+   the dark/deep half. Implemented as a `color` vertex attribute
+   (`vertexColors:true` on the `LineBasicMaterial`) rather than a second
+   flat material, since each 1m threshold needs its own choice.
+2. **Occlusion by the water plane**: `waterMat`
+   (`MeshPhysicalMaterial`, `transparent:true`) never set `depthWrite`,
+   which defaults to `true` — so despite being visually translucent, it
+   was still writing to the depth buffer. Contour lines sit *underwater*
+   (all thresholds negative) and are further from the camera than the
+   water plane in the default top-down-ish views, so depth-testing them
+   against a depth buffer the water had already written to hid them
+   completely. Fixed with `depthWrite:false` on `waterMat` — standard
+   practice for transparent materials, and the actual fix (the color
+   contrast fix alone was not sufficient; confirmed both were needed by
+   testing them independently).
+
+Also added `polygonOffset:true` (`polygonOffsetFactor:1`,
+`polygonOffsetUnits:1`) to the terrain's `MeshStandardMaterial` as a
+z-fighting safety margin — the scene's camera-distance-to-far-plane ratio
+(far plane `40000`) is large enough that the contour lines' small `+0.15`
+Y-nudge alone isn't a reliable guarantee of winning depth precision at
+every zoom level.
+
+### Verifying this in a sandbox (no real GPU)
+
+The usual `page.mouse.wheel()` zoom doesn't reliably drive OrbitControls
+in headless swiftshader. To actually confirm rendering, drove `camera`/
+`controls` directly via temporary `window.__debug*` hooks (removed before
+commit) rather than trying to simulate real input — much more reliable
+for one-off "is this geometry visible" checks than fighting orbit-control
+event simulation.
+
+- `sw.js` cache bumped to `nms-shell-v7` for this change (bump it again
+  on the next `index.html`-touching change too).
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated

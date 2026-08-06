@@ -734,8 +734,8 @@
     </div>
     <div class="settings-lake-meta" id="settingsLakeMeta"></div>
     <div class="row">
-      <label>Überhöhung (Tiefe) <span class="val" id="exagVal">8×</span></label>
-      <input type="range" id="exagSlider" min="1" max="20" step="0.5" value="8">
+      <label>Überhöhung (Tiefe) <span class="val" id="exagVal">3×</span></label>
+      <input type="range" id="exagSlider" min="1" max="20" step="0.5" value="3">
     </div>
     <label class="row toggle-row" for="waterToggle">
       <span>Wasseroberfläche</span>
@@ -1108,14 +1108,103 @@ function initApp(DATA){
     vertexColors:true,
     roughness:0.92,
     metalness:0.02,
-    side:THREE.DoubleSide
+    side:THREE.DoubleSide,
+    polygonOffset:true,
+    polygonOffsetFactor:1,
+    polygonOffsetUnits:1
   });
   var terrain = new THREE.Mesh(geo, material);
   terrain.receiveShadow = true;
   terrain.castShadow = true;
   scene.add(terrain);
 
-  var EXAG = 8;
+  // ---------- depth contour lines (isobaths, 1m intervals) ----------
+  // The colour ramp alone made small depth changes hard to read (a smooth
+  // gradient has no hard edge for the eye to lock onto) — actual contour
+  // lines, like a real bathymetric chart, fix that directly. Traced via
+  // marching squares over the same elevation grid the colour ramp uses, at
+  // integer-metre thresholds; every 5th line drawn bolder as a "major"
+  // contour, matching standard chart convention. Only covers water
+  // (threshold < 0) since that's the only exaggerated range.
+  function buildContourLines(){
+    var minE = 0;
+    for (var i=0;i<EL.length;i++){ if (EL[i] < minE) minE = EL[i]; }
+    var maxDepth = Math.floor(-minE);
+    if (maxDepth < 1) return null;
+
+    // contour color must contrast against wherever it sits on the depth
+    // ramp (near-white in the shallows, near-black in the deep), so pick
+    // per-threshold dark-on-light or light-on-dark from the ramp's own
+    // luminance rather than a single fixed line color.
+    var DARK_LINE = [22,20,30], LIGHT_LINE = [246,245,250];
+    function lineColorFor(thresh){
+      var c = depthColor(thresh);
+      var lum = (0.299*c[0] + 0.587*c[1] + 0.114*c[2]) / 255;
+      return lum > 0.5 ? DARK_LINE : LIGHT_LINE;
+    }
+
+    var minorPos = [], majorPos = [], minorCol = [], majorCol = [];
+    function cellX(col){ return col*CELL - worldW/2; }
+    function cellZ(row){ return row*CELL - worldD/2; }
+    function frac(eA, eB, thresh){ return (thresh - eA) / (eB - eA); }
+
+    for (var t = 1; t <= maxDepth; t++){
+      var thresh = -t;
+      var isMajor = (t % 5 === 0);
+      var target = isMajor ? majorPos : minorPos;
+      var colTarget = isMajor ? majorCol : minorCol;
+      var lc = lineColorFor(thresh);
+      function segCol(){ for (var k=0;k<2;k++){ colTarget.push(lc[0]/255, lc[1]/255, lc[2]/255); } }
+      for (var row = 0; row < GH-1; row++){
+        for (var col = 0; col < GW-1; col++){
+          var i00 = row*GW+col, i10 = row*GW+col+1, i01 = (row+1)*GW+col, i11 = (row+1)*GW+col+1;
+          var e00=EL[i00], e10=EL[i10], e01=EL[i01], e11=EL[i11];
+          var b00 = e00 < thresh, b10 = e10 < thresh, b01 = e01 < thresh, b11 = e11 < thresh;
+          var caseIdx = (b00?1:0) | (b10?2:0) | (b11?4:0) | (b01?8:0);
+          if (caseIdx === 0 || caseIdx === 15) continue;
+
+          var xL = cellX(col), xR = cellX(col+1), zT = cellZ(row), zB = cellZ(row+1);
+          var pts = {};
+          if (b00 !== b10){ var f=frac(e00,e10,thresh); pts.top = [xL+(xR-xL)*f, thresh, zT]; }
+          if (b01 !== b11){ var f=frac(e01,e11,thresh); pts.bottom = [xL+(xR-xL)*f, thresh, zB]; }
+          if (b00 !== b01){ var f=frac(e00,e01,thresh); pts.left = [xL, thresh, zT+(zB-zT)*f]; }
+          if (b10 !== b11){ var f=frac(e10,e11,thresh); pts.right = [xR, thresh, zT+(zB-zT)*f]; }
+
+          function seg(a,b){ target.push(a[0],a[1],a[2], b[0],b[1],b[2]); segCol(); }
+          switch(caseIdx){
+            case 1: case 14: seg(pts.left, pts.top); break;
+            case 2: case 13: seg(pts.top, pts.right); break;
+            case 3: case 12: seg(pts.left, pts.right); break;
+            case 4: case 11: seg(pts.right, pts.bottom); break;
+            case 5: seg(pts.left, pts.top); seg(pts.right, pts.bottom); break;
+            case 6: case 9: seg(pts.top, pts.bottom); break;
+            case 7: case 8: seg(pts.left, pts.bottom); break;
+            case 10: seg(pts.left, pts.bottom); seg(pts.top, pts.right); break;
+          }
+        }
+      }
+    }
+
+    var group = new THREE.Group();
+    function makeLines(posArr, colArr, opacity){
+      if (!posArr.length) return;
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(posArr, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+      g.translate(0, 0.15, 0); // nudge above the terrain surface to avoid z-fighting
+      var m = new THREE.LineBasicMaterial({ vertexColors:true, transparent:true, opacity:opacity, depthWrite:false });
+      var lines = new THREE.LineSegments(g, m);
+      lines.renderOrder = 1;
+      group.add(lines);
+    }
+    makeLines(minorPos, minorCol, 0.4);
+    makeLines(majorPos, majorCol, 0.68);
+    return group;
+  }
+  var contourGroup = buildContourLines();
+  if (contourGroup) scene.add(contourGroup);
+
+  var EXAG = 3;
   function applyExaggeration(){
     var arr = geo.attributes.position.array;
     for (var i=0;i<baseZ.length;i++){
@@ -1124,6 +1213,7 @@ function initApp(DATA){
     }
     geo.attributes.position.needsUpdate = true;
     geo.computeVertexNormals();
+    if (contourGroup) contourGroup.scale.y = EXAG;
     if (measureMarker && measureMarker.visible) updateMeasureMarkerHeight();
     if (typeof markerGroup !== 'undefined' && markerGroup) updateAllMarkerHeights();
   }
@@ -1137,7 +1227,8 @@ function initApp(DATA){
     opacity:0.34,
     roughness:0.15,
     metalness:0.0,
-    clearcoat:0.5
+    clearcoat:0.5,
+    depthWrite:false
   });
   var water = new THREE.Mesh(waterGeo, waterMat);
   water.position.y = 0.02;
@@ -2245,7 +2336,7 @@ function initApp(DATA){
   document.getElementById('btnReset').addEventListener('click', function(){
     camera.position.copy(defaultCamPos);
     controls.target.copy(defaultTarget);
-    exagSlider.value = 8; EXAG = 8; exagVal.textContent = '8×'; applyExaggeration();
+    exagSlider.value = 3; EXAG = 3; exagVal.textContent = '3×'; applyExaggeration();
     controls.update();
   });
   document.getElementById('btnTop').addEventListener('click', function(){
