@@ -563,6 +563,26 @@ Refactored `openMarkerDetail(m)` into a `renderDetailView(m)`
 open and "save then flip back to view" paths share one render function
 instead of duplicating the field-population logic.
 
+## App renamed to "Fishing Deep" — BUILT (2026-08-06)
+
+The app's own brand name (distinct from any individual **lake's** name,
+e.g. "Neumühler See" — that's real per-lake data in `LAKES` and stays
+untouched) is now **Fishing Deep**, replacing "Neumühler See" as the
+app-level brand. That name stopped fitting once the app grew to 20 lakes;
+the logo handoff doc used "SEEKARTE 3D" as an explicit placeholder pending
+a real naming decision — this is that decision, made by the user.
+
+Touched: `<title>` and `document.title` (still lake-name-first, e.g.
+`Neumühler See — Fishing Deep`, so multiple open tabs on different lakes
+stay distinguishable), `<meta name="description">` (also generalized from
+singular "des Neumühler Sees" to plural "mecklenburgischer Seen" — it was
+already stale post-multi-lake), `apple-mobile-web-app-title`,
+`manifest.webmanifest` `name`/`short_name`/`description`, and
+`icons/logo-lockup.svg`'s wordmark. The depth-readout label
+(`#depthLabel`, "Neumühler See · Messpunkt") and the fog-density
+calibration comment near `scene.fog` were **not** touched — both refer to
+the lake, not the brand.
+
 ## UI redesign — bottom sheet + mono terrain ("Nocturne") — BUILT (2026-08-06)
 
 Full chrome replacement, from a design handoff bundle (`Neumuehler Sheet

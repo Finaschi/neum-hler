@@ -1,7 +1,7 @@
 {
-  "name": "Neumühler See – 3D-Tiefenkarte",
-  "short_name": "Neumühler See",
-  "description": "Interaktive 3D-Tiefenkarte des Neumühler Sees mit GPS-Standort und speicherbaren Marken.",
+  "name": "Fishing Deep – 3D-Tiefenkarte",
+  "short_name": "Fishing Deep",
+  "description": "Interaktive 3D-Tiefenkarten mecklenburgischer Seen mit GPS-Standort und speicherbaren Marken.",
   "start_url": "./index.html",
   "scope": "./",
   "id": "./index.html",

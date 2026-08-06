@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Neumühler See — Interaktive 3D-Tiefenkarte</title>
-<meta name="description" content="Interaktive 3D-Tiefenkarte des Neumühler Sees mit GPS-Standort und speicherbaren Marken.">
+<title>Fishing Deep — Interaktive 3D-Tiefenkarte</title>
+<meta name="description" content="Interaktive 3D-Tiefenkarten mecklenburgischer Seen mit GPS-Standort und speicherbaren Marken.">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#161826">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Neumühler See">
+<meta name="apple-mobile-web-app-title" content="Fishing Deep">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2179,7 +2179,7 @@ function initApp(DATA){
   var depthMaxMeanEl = document.getElementById('depthMaxMean');
   var settingsLakeMetaEl = document.getElementById('settingsLakeMeta');
   if (depthLabelEl) depthLabelEl.textContent = DATA.name + ' · Messpunkt';
-  document.title = DATA.name + ' — Interaktive 3D-Tiefenkarte';
+  document.title = DATA.name + ' — Fishing Deep';
   if (depthMaxMeanEl && stats.tmax != null && stats.tmean != null){
     depthMaxMeanEl.textContent = fmt1(stats.tmax) + ' · ' + fmt1(stats.tmean);
   }
