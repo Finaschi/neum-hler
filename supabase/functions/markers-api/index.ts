@@ -14,6 +14,9 @@
 //   POST   /markers-api/<id>/photo    -> body { photo: <base64, no data: prefix> } -> { photo_url }
 //                                         uploads to the "marker-photos" Storage bucket (must be
 //                                         created + set Public in the dashboard, see BACKEND_SETUP.md)
+//   PATCH  /markers-api/<id>          -> body { description?, photo_url? } -> { marker }
+//                                         edits an existing marker after the fact; photo_url: null
+//                                         clears the photo (use the /photo route to set a new one)
 //   DELETE /markers-api/<id>          -> { ok: true }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -25,7 +28,7 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-pin",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
 };
 
 function json(body: unknown, status = 200) {
@@ -125,6 +128,29 @@ Deno.serve(async (req) => {
       .single();
     if (error) return json({ error: error.message }, 500);
     return json({ marker: data }, 201);
+  }
+
+  if (req.method === "PATCH" && !isPhotoRoute) {
+    if (!id || id === "markers-api") return json({ error: "Marker-ID fehlt" }, 400);
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") return json({ error: "Ungültige Anfrage" }, 400);
+    const update: Record<string, unknown> = {};
+    if ("description" in body) {
+      if (body.description != null && (typeof body.description !== "string" || body.description.length > 280)) {
+        return json({ error: "Ungültige Notiz" }, 400);
+      }
+      update.description = body.description || null;
+    }
+    if ("photo_url" in body) {
+      if (body.photo_url != null && typeof body.photo_url !== "string") {
+        return json({ error: "Ungültiges Foto" }, 400);
+      }
+      update.photo_url = body.photo_url || null;
+    }
+    if (Object.keys(update).length === 0) return json({ error: "Nichts zu aktualisieren" }, 400);
+    const { data, error } = await supabase.from("markers").update(update).eq("id", id).select().single();
+    if (error) return json({ error: error.message }, 500);
+    return json({ marker: data });
   }
 
   if (req.method === "DELETE") {

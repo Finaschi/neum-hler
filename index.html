@@ -505,7 +505,8 @@
   button.mtype-btn.selected, button.msub-btn.selected{
     background:rgba(47,183,201,0.16); border-color:var(--accent-teal); color:#fff;
   }
-  .marker-actions{ display:flex; gap:8px; margin-top:16px; }
+  .marker-actions{ margin-top:16px; }
+  .marker-actions:not([hidden]){ display:flex; gap:8px; }
   button.ctrl.primary{
     background:var(--accent-teal); color:#04262b; border-color:var(--accent-teal); font-weight:600;
   }
@@ -556,7 +557,7 @@
     border-radius:9px; display:block;
     border:1px solid var(--panel-border);
   }
-  .marker-photo-preview #markerPhotoRemove{
+  .marker-photo-preview .photo-remove-btn{
     position:absolute; top:7px; right:7px;
     width:26px; height:26px; border:none; border-radius:50%;
     background:rgba(5,11,16,0.72); color:#fff; cursor:pointer;
@@ -876,14 +877,14 @@
     </div>
     <textarea class="marker-desc" id="markerDesc" maxlength="280" placeholder="Notiz (optional) — z. B. Köder, Wetter, Uhrzeit …"></textarea>
     <div class="marker-photo-row">
-      <input type="file" accept="image/*" capture="environment" id="markerPhotoInput" hidden>
+      <input type="file" accept="image/*" id="markerPhotoInput" hidden>
       <button type="button" class="ctrl photo-btn" id="markerPhotoBtn">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
         Foto hinzufügen
       </button>
       <div id="markerPhotoPreview" class="marker-photo-preview" hidden>
         <img id="markerPhotoPreviewImg" alt="">
-        <button type="button" id="markerPhotoRemove" aria-label="Foto entfernen">✕</button>
+        <button type="button" class="photo-remove-btn" id="markerPhotoRemove" aria-label="Foto entfernen">✕</button>
       </div>
     </div>
     <div class="marker-actions">
@@ -902,9 +903,28 @@
     <img id="detailPhoto" class="marker-detail-photo" hidden alt="">
     <div class="marker-detail-desc" id="detailDesc" hidden></div>
     <div class="marker-detail-meta" id="detailMeta" hidden></div>
-    <div class="marker-actions">
+    <div id="detailEditFields" hidden>
+      <textarea class="marker-desc" id="detailDescInput" maxlength="280" placeholder="Notiz (optional) — z. B. Köder, Wetter, Uhrzeit …"></textarea>
+      <div class="marker-photo-row">
+        <input type="file" accept="image/*" id="detailPhotoInput" hidden>
+        <button type="button" class="ctrl photo-btn" id="detailPhotoBtn">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Foto hinzufügen
+        </button>
+        <div id="detailPhotoPreview" class="marker-photo-preview" hidden>
+          <img id="detailPhotoPreviewImg" alt="">
+          <button type="button" class="photo-remove-btn" id="detailPhotoRemove" aria-label="Foto entfernen">✕</button>
+        </div>
+      </div>
+    </div>
+    <div class="marker-actions" id="detailViewActions">
       <button class="ctrl" id="markerDetailDelete">Löschen</button>
+      <button class="ctrl" id="markerDetailEdit">Bearbeiten</button>
       <button class="ctrl primary" id="markerDetailClose">Schließen</button>
+    </div>
+    <div class="marker-actions" id="detailEditActions" hidden>
+      <button class="ctrl" id="markerDetailEditCancel">Abbrechen</button>
+      <button class="ctrl primary" id="markerDetailEditSave">Speichern</button>
     </div>
   </div>
 </div>
@@ -1749,8 +1769,8 @@ function initApp(DATA){
   }
   var markerDetailModal = document.getElementById('markerDetailModal');
   var detailMarkerId = null;
-  function openMarkerDetail(m){
-    detailMarkerId = m.id;
+  var detailMarkerRef = null;
+  function renderDetailView(m){
     var dotEl = document.getElementById('detailDot');
     var labelEl = document.getElementById('detailLabel');
     var photoEl = document.getElementById('detailPhoto');
@@ -1771,11 +1791,119 @@ function initApp(DATA){
       metaEl.textContent = dt ? ('Hinzugefügt am ' + dt) : '';
       metaEl.hidden = !dt;
     }
+  }
+  function openMarkerDetail(m){
+    detailMarkerId = m.id;
+    detailMarkerRef = m;
+    renderDetailView(m);
+    exitMarkerDetailEdit();
     if (markerDetailModal) markerDetailModal.classList.add('show');
   }
   function closeMarkerDetail(){
     if (markerDetailModal) markerDetailModal.classList.remove('show');
+    exitMarkerDetailEdit();
     detailMarkerId = null;
+    detailMarkerRef = null;
+  }
+
+  // ---------- marker detail: edit mode (description + photo, after the fact) ----------
+  var detailEditFields = document.getElementById('detailEditFields');
+  var detailViewActions = document.getElementById('detailViewActions');
+  var detailEditActions = document.getElementById('detailEditActions');
+  var detailDescInput = document.getElementById('detailDescInput');
+  var detailPhotoInput = document.getElementById('detailPhotoInput');
+  var detailPhotoBtn = document.getElementById('detailPhotoBtn');
+  var detailPhotoPreview = document.getElementById('detailPhotoPreview');
+  var detailPhotoPreviewImg = document.getElementById('detailPhotoPreviewImg');
+  var detailPhotoRemove = document.getElementById('detailPhotoRemove');
+  var pendingEditPhotoBase64 = null;
+  var pendingEditPhotoRemoved = false;
+  function resetDetailPhotoPicker(existingUrl){
+    pendingEditPhotoBase64 = null;
+    pendingEditPhotoRemoved = false;
+    if (detailPhotoInput) detailPhotoInput.value = '';
+    if (existingUrl){
+      if (detailPhotoPreviewImg) detailPhotoPreviewImg.src = existingUrl;
+      if (detailPhotoPreview) detailPhotoPreview.hidden = false;
+      if (detailPhotoBtn) detailPhotoBtn.hidden = true;
+    } else {
+      if (detailPhotoPreview) detailPhotoPreview.hidden = true;
+      if (detailPhotoBtn) detailPhotoBtn.hidden = false;
+    }
+  }
+  if (detailPhotoBtn) detailPhotoBtn.addEventListener('click', function(){ detailPhotoInput.click(); });
+  if (detailPhotoInput) detailPhotoInput.addEventListener('change', function(){
+    var file = detailPhotoInput.files && detailPhotoInput.files[0];
+    if (!file) return;
+    compressImageFile(file).then(function(dataUrl){
+      pendingEditPhotoBase64 = dataUrl.split(',')[1];
+      pendingEditPhotoRemoved = false;
+      detailPhotoPreviewImg.src = dataUrl;
+      detailPhotoPreview.hidden = false;
+      detailPhotoBtn.hidden = true;
+    }).catch(function(){
+      resetDetailPhotoPicker(detailMarkerRef ? detailMarkerRef.photo_url : null);
+    });
+  });
+  if (detailPhotoRemove) detailPhotoRemove.addEventListener('click', function(){
+    pendingEditPhotoBase64 = null;
+    pendingEditPhotoRemoved = true;
+    if (detailPhotoInput) detailPhotoInput.value = '';
+    if (detailPhotoPreview) detailPhotoPreview.hidden = true;
+    if (detailPhotoBtn) detailPhotoBtn.hidden = false;
+  });
+  function enterMarkerDetailEdit(){
+    if (!detailMarkerRef) return;
+    if (detailDescInput) detailDescInput.value = detailMarkerRef.description || '';
+    resetDetailPhotoPicker(detailMarkerRef.photo_url);
+    var descViewEl = document.getElementById('detailDesc');
+    var photoViewEl = document.getElementById('detailPhoto');
+    if (descViewEl) descViewEl.hidden = true;
+    if (photoViewEl) photoViewEl.hidden = true;
+    if (detailEditFields) detailEditFields.hidden = false;
+    if (detailViewActions) detailViewActions.hidden = true;
+    if (detailEditActions) detailEditActions.hidden = false;
+  }
+  function exitMarkerDetailEdit(){
+    if (detailMarkerRef) renderDetailView(detailMarkerRef);
+    if (detailEditFields) detailEditFields.hidden = true;
+    if (detailViewActions) detailViewActions.hidden = false;
+    if (detailEditActions) detailEditActions.hidden = true;
+  }
+  function saveMarkerDetailEdit(){
+    if (!detailMarkerRef) return;
+    var m = detailMarkerRef;
+    ensurePin().then(function(pin){
+      if (!pin){ setSyncStatus('err', 'Nicht gespeichert · PIN erforderlich'); return; }
+      var newDesc = detailDescInput ? detailDescInput.value.trim() : '';
+      var patch = { description: newDesc || null };
+      var removingPhoto = pendingEditPhotoRemoved && !pendingEditPhotoBase64;
+      if (removingPhoto) patch.photo_url = null;
+      setSyncStatus('', 'Speichere …');
+      apiRequest('PATCH', '/' + m.id, patch, pin).then(function(){
+        m.description = newDesc || null;
+        if (removingPhoto) m.photo_url = null;
+        if (pendingEditPhotoBase64){
+          setSyncStatus('', 'Lade Foto hoch …');
+          return apiRequest('POST', '/' + m.id + '/photo', { photo: pendingEditPhotoBase64 }, pin).then(function(photoData){
+            m.photo_url = photoData.photo_url;
+          });
+        }
+      }).then(function(){
+        cacheMarkersLocally();
+        setSyncStatus('ok', 'Synchronisiert');
+        renderMarkerList();
+        exitMarkerDetailEdit();
+      }).catch(function(err){
+        if (err.status === 401){
+          setStoredPin('');
+          openPinModal('Falsche PIN — bitte erneut versuchen.');
+          setSyncStatus('err', 'PIN falsch');
+        } else {
+          setSyncStatus('err', 'Speichern fehlgeschlagen (offline?)');
+        }
+      });
+    });
   }
   if (markerDetailModal){
     var detailCloseBtn = document.getElementById('markerDetailClose');
@@ -1785,6 +1913,12 @@ function initApp(DATA){
       if (detailMarkerId) removeMarker(detailMarkerId);
       closeMarkerDetail();
     });
+    var detailEditBtn = document.getElementById('markerDetailEdit');
+    if (detailEditBtn) detailEditBtn.addEventListener('click', enterMarkerDetailEdit);
+    var detailEditCancelBtn = document.getElementById('markerDetailEditCancel');
+    if (detailEditCancelBtn) detailEditCancelBtn.addEventListener('click', exitMarkerDetailEdit);
+    var detailEditSaveBtn = document.getElementById('markerDetailEditSave');
+    if (detailEditSaveBtn) detailEditSaveBtn.addEventListener('click', saveMarkerDetailEdit);
     markerDetailModal.addEventListener('click', function(e){
       if (e.target === markerDetailModal) closeMarkerDetail();
     });
