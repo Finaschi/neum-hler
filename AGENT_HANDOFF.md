@@ -530,6 +530,177 @@ OSM map tiles already do in production. If weather ever silently doesn't
 show for a real user, check the Network tab for that request specifically
 before assuming the code is wrong.
 
+## Marker editing + photo-library fix — BUILT (2026-08-06)
+
+Two small, related fixes to the marker system:
+
+- **Markers are now editable after the fact.** Tapping a marker's detail
+  modal shows a new "Bearbeiten" button (`#markerDetailEdit`) that swaps
+  the view-only fields for an edit form (description textarea + the same
+  photo picker used at creation time, prefilled with the existing photo
+  if any) and swaps the action row for Abbrechen/Speichern
+  (`enterMarkerDetailEdit()`/`exitMarkerDetailEdit()`). Saving calls a new
+  `PATCH /markers-api/<id>` Edge Function route (body `{description?,
+  photo_url?}`, `photo_url: null` clears the photo) plus, if a new photo
+  was picked, the existing `POST /markers-api/<id>/photo` route — same
+  upload path as marker creation, just re-used for an edit. **Requires
+  redeploying the Edge Function** (`supabase/functions/markers-api/
+  index.ts`) — the PATCH route doesn't exist on an already-deployed
+  function until you paste the updated code into the Supabase dashboard
+  and redeploy; walked the user through this manually since there's no
+  CLI/CI deploy pipeline for it in this setup.
+- **Photo picker no longer forces the camera.** The file input had
+  `capture="environment"`, which pushes some mobile browsers straight to
+  the camera instead of also offering the photo library — removed from
+  both the marker-creation and marker-edit inputs (`accept="image/*"`
+  alone still lets the browser show its native "camera or library" sheet).
+  Relevant since markers (especially catches) often get logged well after
+  the fact, from an existing photo, not a fresh one.
+
+Refactored `openMarkerDetail(m)` into a `renderDetailView(m)`
+(populates the read-only fields) + `openMarkerDetail(m)` (calls
+`renderDetailView` and resets to view mode) split, so both the initial
+open and "save then flip back to view" paths share one render function
+instead of duplicating the field-population logic.
+
+## UI redesign — bottom sheet + mono terrain ("Nocturne") — BUILT (2026-08-06)
+
+Full chrome replacement, from a design handoff bundle (`Neumuehler Sheet
+UI.dc.html` + `Lake App Redesign v2.dc.html`, high-fidelity — colours, type
+sizes, spacing, radii were final, not up for reinterpretation). Two
+independent decisions, both shipped together here:
+
+1. **Chrome**: the five floating corner panels (`#title`, `#controls`,
+   `#legend`, `#measurePanel`, `#markersPanel`) and their chip/accordion
+   system (`IDS`, `closeOtherPanels()`, `data-toggle`) are gone. Replaced
+   with a thin top **status row** (live GPS dot + `GPS AKTIV/AUS · <temp>°
+   <wind> <dir>` text, settings gear) and a single **bottom sheet**
+   (`#sheet`) holding the lake-code rail, depth readout, marker list, and
+   the "Marker setzen" primary button. A second **settings sheet**
+   (`#settingsSheet`, same visual component, opened via the gear button)
+   holds what used to be the Controls + Legend panels: lake `<select>`,
+   Überhöhung slider, the three toggles, GPS status text, nearest-lake
+   suggestion, Draufsicht/Zurücksetzen/Auf-echter-Karte buttons, and the
+   depth legend gradient.
+2. **Terrain**: the rainbow depth ramp (`stops`), land colour, scene
+   background/fog, lights, and water material all moved to a single-hue
+   violet-on-charcoal palette ("Nocturne": `--color-bg #161826`,
+   `--color-surface #232532`, `--color-accent #9184d9`). Exact numbers are
+   in the design doc, ported verbatim into `stops`/`landColor()`/the light
+   and water constructors — **do not re-tune these by eye**, they're
+   final.
+
+### Sheet mechanics
+
+`#sheet` has three detents driven by a literal `height` (not `transform` —
+see below), stored as `data-detent="peek|half|full"` and mapped to CSS
+rules (`#sheet[data-detent="peek"]{height:168px}` etc.), animated via
+`transition:height 380ms cubic-bezier(.32,.72,0,1)`. Persisted in
+`localStorage` (`nms_sheet_detent_v1`).
+
+Drag + tap-to-cycle is bound to **`#sheetHandle` only**, not the whole
+`#sheetHeader` — the header also contains the lake-rail buttons and other
+interactive content, and a header-wide click listener would intercept taps
+meant for those (click bubbles from the button through the header before
+reaching any ancestor listener). If you're tempted to make the whole
+header draggable to match the design doc's "anywhere in the header" line
+literally, you'll reintroduce that bug — scope it to the handle, or
+explicitly exclude interactive descendants (`e.target.closest('.lake-pill')`
+etc.) if you do widen it.
+
+**Height vs. transform**: the design doc's interaction section says
+"snap with `transition: transform`", but its own static mockup sizes the
+sheet via a literal `height: 432px` on the div, and the primary button is
+pinned via `bottom: 26px` relative to that box. A transform-based
+implementation (tall fixed 92vh box, slid up/down) would need the button
+repositioned by JS at every detent, since `bottom:26px` on a box that's
+always 92vh tall stays anchored to the box's own (invariant) bottom edge,
+not the *visible* bottom edge. Animating `height` directly sidesteps that
+— the button's `position:absolute; bottom:26px` inside `#sheet` then
+naturally tracks the real bottom regardless of detent. Visually identical
+result; simpler and more robust. If you revisit this, know why it's not
+literally what the doc's interaction bullet says.
+
+Only the marker list scrolls (`#sheetScroll`) — the handle, lake rail, and
+depth readout live in a separate non-scrolling `#sheetHeader` so they stay
+put while browsing markers, matching the doc's explicit call-out.
+
+### Depth readout
+
+Single source of truth is `renderDepthValue(e)` (elevation in, writes
+`#depthValue`/`#depthUnit`, `+`-prefixes and `.land`-tints land elevations
+same as the old measure panel did). `lastMeasurePoint` (`{x,z,idx}`)
+tracks whichever point is *currently shown* — manual tap always wins and
+persists (`lastMeasureIdx >= 0` guard, unchanged from before), live GPS
+position fills the readout only when no manual tap has happened yet. The
+**"Marker setzen" primary button** opens the marker-creation modal at
+`lastMeasurePoint` via a new `openMarkerModalAtPoint(x,z,idx)` (factored
+out of the old click-to-raycast `openMarkerModal(clientX,clientY)`, which
+now just raycasts then delegates to it) — if nothing's been tapped/GPS'd
+yet, it flashes the hint pill with a nudge instead of silently doing
+nothing.
+
+### Marker list row depth
+
+New: each row shows the marker's own depth (`markerDepthAt()`, reads
+`EL[m.idx]` the same way the depth readout does) — not present in the old
+list. Description text is **not** shown in the compact row (no room at
+39px row height) — tap the row (or the pin) to open the full detail modal;
+wired via a delegated click listener with `data-open="<id>"` alongside the
+existing `data-del="<id>"` delete button.
+
+### Marker/species colours
+
+Re-tinted per the design doc: `SPECIES_COLORS` pike `#b5abfc` / perch
+`#cfd3e5` / both `#9184d9`. The base `MARKER_COLORS` (used only when a
+`catch`/`territory` marker somehow has no subtype, or for plain `poi`) had
+no doc-given values — picked neutral-200 (`#e4e7f5`) for `poi` and
+accent-400 (`#b5abfc`, same as pike) for `catch` as reasonable extensions
+of the same palette, not from the doc. The measure-pin stays red
+(`#ff5a5a`, unchanged) — it's a temporary probe marker, semantically
+distinct, and the doc doesn't mention recolouring it.
+
+### Filter control
+
+The old 4-button icon-pill row (`#markerFilterRow`/`.mfilter-btn`, one
+button per type with its own colour) is gone — the design doc shows a
+single tappable label (`ALLE`/`POI`/`FNG`/`RVR`) that cycles. Same
+underlying `markerFilter` state and `updateMarkerPinVisibility()` call
+from inside `renderMarkerList()`, just a different control.
+
+### `.hud`/chip system fully removed
+
+If you're looking for `#title`/`#controls`/`#measurePanel`/`#legend`/
+`#markersPanel`/`.chip`/`.hud`/`data-toggle` — they're gone, not hidden.
+`#hint` survives (still a standalone centred-top pill, just repositioned
+below the new status row) — it's reused by both the "tap to set a point
+first" nudge and the existing one-time iOS install tip.
+
+### Not done / deliberately out of scope
+
+- Didn't touch `#markerModal`/`#pinModal`/`#markerDetailModal`/`#mapModal`
+  beyond what the shared CSS custom properties cascade automatically —
+  the design doc's fidelity claims only cover the main sheet screen, not
+  these. They now pick up the Nocturne palette for free (same `--panel`/
+  `--ink`/`--accent-teal` variable names, new values) but their own
+  layout/spacing is untouched.
+- Didn't add drag-resize to the settings sheet (it's a simple open/close
+  overlay, `transform: translateY`, matching how it behaves in the doc —
+  no detents there).
+- `sw.js` cache bumped to `nms-shell-v4` so this ships promptly to
+  existing installs (see the iOS PWA staleness fix above for why that
+  matters) — bump it again on the next `index.html`-touching change too.
+
+## Recurring gotcha, updated: the `[hidden]` rule now also covers the sheet
+
+Same rule as above (`:not([hidden])` scoping) — `.marker-actions` needed
+it retroactively when `#detailEditActions`/`#detailViewActions` started
+toggling via `hidden` (already fixed, see the marker-edit section). Kept
+in mind for every new `hidden`-toggled element added during this redesign
+(`#markerListSection` empty states, `#nearestLakeSuggest`, etc.) — none of
+them hit the bug this time because the rule was already known going in,
+but keep checking on anything new.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated

@@ -6,7 +6,7 @@
 <title>Neumühler See — Interaktive 3D-Tiefenkarte</title>
 <meta name="description" content="Interaktive 3D-Tiefenkarte des Neumühler Sees mit GPS-Standort und speicherbaren Marken.">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#050b10">
+<meta name="theme-color" content="#161826">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -18,15 +18,20 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root{
-    --bg: #050b10;
-    --panel: rgba(10,22,28,0.72);
-    --panel-border: rgba(255,255,255,0.09);
-    --ink: #dfeef2;
-    --ink-dim: #8aa3ab;
-    --accent-shallow: #f4e98c;
-    --accent-deep: #1c2f8f;
-    --accent-teal: #2fb7c9;
-    --radius: 12px;
+    --color-bg: #161826;
+    --color-surface: #232532;
+    --color-text: #e9e9ed;
+    --color-accent: #9184d9;
+    --color-accent-300: #d2cefd;
+    --color-divider: rgba(233,233,237,.16);
+
+    --bg: var(--color-bg);
+    --panel: color-mix(in srgb, var(--color-surface) 90%, transparent);
+    --panel-border: rgba(233,233,237,.14);
+    --ink: var(--color-text);
+    --ink-dim: rgba(233,233,237,.55);
+    --accent-teal: var(--color-accent);
+    --radius: 14px;
   }
   *{box-sizing:border-box;}
   html,body{
@@ -38,11 +43,6 @@
   #scene{position:absolute; inset:0; z-index:0;}
   #scene canvas{display:block;}
 
-  .hud{
-    position:absolute;
-    pointer-events:none;
-    z-index:5;
-  }
   .panel{
     pointer-events:auto;
     background:var(--panel);
@@ -53,79 +53,244 @@
     box-shadow: 0 8px 30px rgba(0,0,0,0.35);
   }
 
-  #title{
-    top:22px; left:22px;
-    max-width:min(72vw, 420px);
+  /* ---------- status row (top) ---------- */
+  #statusRow{
+    position:absolute;
+    top:calc(14px + env(safe-area-inset-top) + 30px);
+    left:22px; right:22px;
+    z-index:5;
+    display:flex; align-items:center; justify-content:space-between;
+    pointer-events:none;
   }
-  #title .panel{ padding:16px 42px 15px 20px; }
-  #title h1{
-    font-family:'Space Grotesk', sans-serif;
-    font-weight:600;
-    font-size:22px;
-    letter-spacing:0.2px;
-    margin:0 0 3px 0;
-    color:#fff;
+  #statusRow > *{ pointer-events:auto; }
+  .status-left{ display:flex; align-items:center; gap:8px; }
+  .status-dot{
+    width:6px; height:6px; border-radius:50%; flex:none;
+    background:var(--color-accent);
+    animation: lp 2.4s ease-out infinite;
   }
-  #title .sub{
-    font-size:12.5px;
-    color: var(--ink-dim);
-    letter-spacing:0.3px;
+  .status-dot.off{ background:rgba(233,233,237,.3); animation:none; }
+  .status-text{
+    font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+    color:rgba(233,233,237,.6);
+    font-variant-numeric:tabular-nums;
   }
-  #title .stats{
-    display:flex;
-    gap:16px;
-    margin-top:11px;
-    padding-top:10px;
-    border-top:1px solid rgba(255,255,255,0.08);
-    font-family:'IBM Plex Mono', monospace;
+  #settingsBtn{
+    width:38px; height:38px; border-radius:50%; padding:0; border:none;
+    background:color-mix(in srgb, var(--color-surface) 78%, transparent);
+    backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(233,233,237,.14);
+    display:flex; align-items:center; justify-content:center;
+    color:rgba(233,233,237,.8);
+    cursor:pointer;
   }
-  #title .stat b{
-    display:block;
-    font-size:15px;
-    color: var(--accent-teal);
-    font-weight:500;
-  }
-  #title .stat span{
-    display:block;
-    font-size:10px;
-    color: var(--ink-dim);
-    text-transform:uppercase;
-    letter-spacing:0.6px;
-    margin-top:1px;
-  }
-  .weather-row:not([hidden]){
-    display:flex;
-    gap:16px;
-    margin-top:9px;
-    padding-top:9px;
-    border-top:1px solid rgba(255,255,255,0.08);
-  }
-  .weather-item{
-    display:flex;
-    align-items:center;
-    gap:5px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:12.5px;
-    color:var(--ink);
-  }
-  .weather-icon{ flex:none; color:var(--accent-teal); }
-  #weatherWindIcon{ transition:transform .3s ease; }
-  .weather-dim{ color:var(--ink-dim); font-size:11px; }
+  #settingsBtn svg{ display:block; }
 
-  #controls{
-    top:22px; right:22px;
-    width:236px;
-  }
-  #controls .panel{ padding:16px 42px 17px 18px; }
-  #controls h2{
-    font-family:'Space Grotesk', sans-serif;
-    font-size:12px;
-    text-transform:uppercase;
-    letter-spacing:1px;
+  /* ---------- hint pill ---------- */
+  #hint{
+    position:absolute;
+    top:calc(14px + env(safe-area-inset-top) + 76px);
+    left:50%;
+    transform:translateX(-50%);
+    width:max-content;
+    max-width:min(72vw, 380px);
+    text-align:center;
+    font-size:11.5px;
     color:var(--ink-dim);
-    margin:0 0 12px 0;
-    font-weight:600;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    padding:7px 14px;
+    border-radius:999px;
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    opacity:1;
+    transition:opacity 0.6s ease 2.4s;
+    z-index:5;
+    pointer-events:none;
   }
+
+  #loading{
+    position:absolute; inset:0;
+    background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column;
+    gap:10px;
+    z-index:10;
+    transition:opacity .5s ease;
+  }
+  #loading .spin{
+    width:26px;height:26px;
+    border-radius:50%;
+    border:2px solid rgba(255,255,255,0.15);
+    border-top-color:var(--accent-teal);
+    animation:spin 0.9s linear infinite;
+  }
+  #loading span{ font-size:12px; color:var(--ink-dim); font-family:'IBM Plex Mono',monospace; letter-spacing:0.5px;}
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  /* ---------- bottom sheet ---------- */
+  #sheet{
+    position:fixed;
+    left:0; right:0; bottom:0;
+    z-index:5;
+    height:432px;
+    max-height:92vh;
+    background:color-mix(in srgb, var(--color-surface) 90%, transparent);
+    backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+    border-top:1px solid rgba(233,233,237,.12);
+    border-radius:24px 24px 0 0;
+    display:flex; flex-direction:column;
+    transition:height 380ms cubic-bezier(.32,.72,0,1);
+    box-shadow:0 -8px 30px rgba(0,0,0,.35);
+    overflow:hidden;
+  }
+  #sheet.dragging{ transition:none; }
+  #sheet[data-detent="peek"]{ height:168px; }
+  #sheet[data-detent="half"]{ height:432px; }
+  #sheet[data-detent="full"]{ height:92vh; }
+  #sheetHeader{ flex:none; }
+  #sheetHandle{
+    padding:10px 0 16px;
+    cursor:grab;
+    touch-action:none;
+  }
+  #sheetHandle.dragging{ cursor:grabbing; }
+  #sheetHandle .grab{
+    width:34px; height:3px; border-radius:2px;
+    background:rgba(233,233,237,.22);
+    margin:0 auto;
+  }
+  #sheetScroll{
+    flex:1 1 auto; min-height:0;
+    overflow-y:auto; overflow-x:hidden;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:84px;
+  }
+  #sheetPrimaryWrap{ position:absolute; left:20px; right:20px; bottom:26px; }
+
+  .mlab{
+    font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+    color:rgba(233,233,237,.45);
+  }
+
+  /* ---------- lake code rail ---------- */
+  #lakeRail{
+    display:flex; gap:7px;
+    padding:0 20px 16px;
+    overflow-x:auto; overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  #lakeRail::-webkit-scrollbar{ display:none; }
+  .lake-pill{
+    flex:none;
+    font-variant-numeric:tabular-nums;
+    font-family:inherit;
+    font-size:11px; letter-spacing:.12em;
+    padding:7px 13px; border-radius:999px;
+    border:1px solid rgba(233,233,237,.12);
+    color:rgba(233,233,237,.55);
+    background:transparent;
+    cursor:pointer;
+  }
+  .lake-pill.active{ border-color:var(--color-accent); color:var(--color-accent-300); }
+
+  /* ---------- depth readout ---------- */
+  #depthReadout{ display:flex; align-items:flex-end; justify-content:space-between; padding:0 20px 16px; }
+  #depthReadout .mlab{ margin-bottom:5px; }
+  #depthValueRow{ display:flex; align-items:baseline; gap:5px; }
+  #depthValue{
+    font-size:34px; line-height:1; font-weight:500;
+    letter-spacing:-.02em; font-variant-numeric:tabular-nums;
+  }
+  #depthValue.land{ color:#cfd3e5; }
+  #depthUnit{ font-size:13px; color:rgba(233,233,237,.45); }
+  #depthMaxMeanWrap{ text-align:right; }
+  #depthMaxMean{ font-size:14px; color:rgba(233,233,237,.6); font-variant-numeric:tabular-nums; }
+
+  .fade-rule{
+    height:1px;
+    background:linear-gradient(to right,transparent,rgba(233,233,237,.13) 48px,rgba(233,233,237,.13) calc(100% - 48px),transparent);
+    flex:none;
+  }
+
+  /* ---------- marker list ---------- */
+  #markerListSection{ padding:14px 20px 0; }
+  .mlist-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:11px; }
+  #markerFilterCycle{
+    background:none; border:none; padding:0; font:inherit;
+    font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+    cursor:pointer; color:var(--color-accent-300);
+  }
+  .sync-status{ font-size:10.5px; color:var(--ink-dim); margin:-4px 0 9px 0; display:flex; align-items:center; gap:5px; }
+  .sync-status .dot{ width:6px; height:6px; border-radius:50%; background:var(--ink-dim); flex:none; }
+  .sync-status.ok .dot{ background:#79d9a0; }
+  .sync-status.offline .dot{ background:#e8c063; }
+  .sync-status.err .dot{ background:#e88888; }
+  .mk-row{
+    display:flex; align-items:center; gap:12px;
+    padding:9px 0; min-height:44px;
+    border-bottom:1px solid rgba(233,233,237,.07);
+  }
+  .mk-row:last-child{ border-bottom:none; }
+  .mk-code{
+    font-size:9.5px; letter-spacing:.1em; width:30px; flex:none;
+    color:rgba(233,233,237,.5); text-transform:uppercase;
+    font-variant-numeric:tabular-nums;
+  }
+  .mk-label{ flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mk-depth{ font-size:12px; color:rgba(233,233,237,.5); font-variant-numeric:tabular-nums; flex:none; }
+  .mk-del{
+    flex:none; width:22px; height:22px; border:none; border-radius:50%;
+    background:rgba(233,233,237,.07); color:rgba(233,233,237,.5); cursor:pointer;
+    font-size:11px; display:flex; align-items:center; justify-content:center;
+  }
+  .mk-del:hover{ background:rgba(232,136,136,0.25); color:#e88888; }
+  .measure-placeholder{ font-size:11.5px; color:var(--ink-dim); line-height:1.5; padding:2px 0 12px; }
+
+  /* ---------- primary action button ---------- */
+  .btn-sheet-primary{
+    display:block; width:100%; height:46px;
+    border-radius:999px; border:1px solid var(--color-accent);
+    background:transparent; color:var(--color-accent-300);
+    font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+    font-family:inherit; cursor:pointer;
+    transition:background .15s;
+  }
+  .btn-sheet-primary:hover{ background:color-mix(in srgb, var(--color-accent) 12%, transparent); }
+  .btn-sheet-primary:active{ background:color-mix(in srgb, var(--color-accent) 22%, transparent); }
+
+  /* ---------- settings sheet (secondary sheet: lake list, exaggeration,
+     toggles, legend, map/reset buttons) ---------- */
+  #settingsSheet{
+    position:fixed; inset:0; z-index:20;
+    display:flex; align-items:flex-end; justify-content:center;
+    background:rgba(8,9,14,0); pointer-events:none;
+    transition:background .2s ease;
+  }
+  #settingsSheet.show{ background:rgba(8,9,14,0.55); pointer-events:auto; }
+  #settingsSheet .sheet-surface{
+    position:relative;
+    width:100%; max-width:480px; max-height:88vh;
+    background:color-mix(in srgb, var(--color-surface) 90%, transparent);
+    backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+    border-top:1px solid rgba(233,233,237,.12);
+    border-radius:24px 24px 0 0;
+    padding:10px 20px calc(20px + env(safe-area-inset-bottom));
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    transform:translateY(100%);
+    transition:transform 320ms cubic-bezier(.32,.72,0,1);
+  }
+  #settingsSheet.show .sheet-surface{ transform:translateY(0); }
+  .settings-grab{ width:34px; height:3px; border-radius:2px; background:rgba(233,233,237,.22); margin:0 auto 16px; }
+  .settings-h2{
+    font-size:11px; text-transform:uppercase; letter-spacing:1px;
+    color:var(--ink-dim); margin:18px 0 12px; font-weight:600;
+  }
+  .settings-h2:first-of-type{ margin-top:4px; }
+  .settings-lake-meta{ font-size:11px; color:var(--ink-dim); margin:-6px 0 13px; }
+
   .row{ margin-bottom:13px; }
   .row:last-child{ margin-bottom:0; }
   .row label{
@@ -153,7 +318,7 @@
     border-radius:50%;
     background:var(--accent-teal);
     cursor:pointer;
-    box-shadow:0 0 8px rgba(47,183,201,0.7);
+    box-shadow:0 0 8px rgba(145,132,217,0.7);
   }
   input[type=range]::-moz-range-thumb{
     width:14px; height:14px;
@@ -173,7 +338,7 @@
     padding:7px 8px;
     outline:none;
   }
-  select.lake-select option{ background:#0a161c; color:var(--ink); }
+  select.lake-select option{ background:#1c1e2c; color:var(--ink); }
   .toggle-row{
     display:flex;
     align-items:center;
@@ -233,8 +398,8 @@
   .nearest-lake-suggest{
     margin-top:8px;
     padding:9px 10px;
-    background:rgba(47,183,201,0.1);
-    border:1px solid rgba(47,183,201,0.35);
+    background:rgba(145,132,217,0.1);
+    border:1px solid rgba(145,132,217,0.35);
     border-radius:9px;
     font-size:11.5px;
     color:var(--ink);
@@ -242,64 +407,18 @@
   .nearest-lake-actions{ display:flex; gap:6px; margin-top:7px; }
   .nearest-lake-actions .ctrl{ flex:1; padding:7px 8px; font-size:11.5px; }
 
-  #measurePanel{
-    bottom:22px; right:22px;
-    width:236px;
-  }
-  #measurePanel .panel{ padding:14px 42px 15px 18px; }
-  #measurePanel h2{
-    font-family:'Space Grotesk', sans-serif;
-    font-size:11px;
-    text-transform:uppercase;
-    letter-spacing:1px;
-    color:var(--ink-dim);
-    margin:0 0 9px 0;
-    font-weight:600;
-  }
-  .measure-placeholder{
-    font-size:11.5px;
-    color:var(--ink-dim);
-    line-height:1.5;
-  }
-  .mrow{ display:flex; flex-direction:column; }
-  .mval{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:22px;
-    color:var(--accent-teal);
-    font-weight:500;
-  }
-  .mval.land{ color:#c7bd8e; }
-  .mlabel{
-    font-size:11px;
-    color:var(--ink-dim);
-    margin-top:2px;
-  }
-
-  #legend{
-    bottom:22px; left:22px;
-    width:300px;
-  }
-  #markersPanel{ bottom:22px; left:50%; transform:translateX(-50%); align-items:center; }
-  #legend .panel{ padding:14px 42px 15px 18px; }
-  #legend h2{
-    font-family:'Space Grotesk', sans-serif;
-    font-size:11px;
-    text-transform:uppercase;
-    letter-spacing:1px;
-    color:var(--ink-dim);
-    margin:0 0 9px 0;
-    font-weight:600;
-  }
   #gradientBar{
     height:12px;
     border-radius:4px;
     background: linear-gradient(to right,
-      #fffe80, #e0fc6d, #bbf759, #9bf249, #77eb34, #55e620, #39db1d,
-      #3dcc40, #3dbf59, #3bb375, #31a38a, #2296a3, #1e83a6, #21689c,
-      #215194, #1d3a8a, #172683, #0c1078);
+      rgb(188,192,216), rgb(174,177,210), rgb(161,162,205), rgb(149,147,200),
+      rgb(138,134,193), rgb(127,121,185), rgb(117,110,176), rgb(108, 99,165),
+      rgb( 99, 90,155), rgb( 90, 82,144), rgb( 82, 74,132), rgb( 73, 66,121),
+      rgb( 65, 59,109), rgb( 58, 53, 98), rgb( 51, 47, 86), rgb( 45, 41, 74),
+      rgb( 39, 35, 62), rgb( 35, 32, 55));
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
   }
-  #legend .scale{
+  .legend-scale{
     display:flex;
     justify-content:space-between;
     font-family:'IBM Plex Mono', monospace;
@@ -307,7 +426,7 @@
     color:var(--ink-dim);
     margin-top:5px;
   }
-  #legend .source{
+  .legend-source{
     margin-top:11px;
     padding-top:9px;
     border-top:1px solid rgba(255,255,255,0.08);
@@ -316,96 +435,7 @@
     line-height:1.5;
   }
 
-  #hint{
-    top:22px;
-    left:50%;
-    transform:translateX(-50%);
-    width:max-content;
-    max-width:min(60vw, 440px);
-    text-align:center;
-    font-size:11.5px;
-    color:var(--ink-dim);
-    background:var(--panel);
-    border:1px solid var(--panel-border);
-    padding:7px 14px;
-    border-radius:999px;
-    backdrop-filter:blur(10px);
-    opacity:1;
-    transition:opacity 0.6s ease 2.4s;
-  }
-
-  #loading{
-    position:absolute; inset:0;
-    background:var(--bg);
-    display:flex; align-items:center; justify-content:center;
-    flex-direction:column;
-    gap:10px;
-    z-index:10;
-    transition:opacity .5s ease;
-  }
-  #loading .spin{
-    width:26px;height:26px;
-    border-radius:50%;
-    border:2px solid rgba(255,255,255,0.15);
-    border-top-color:var(--accent-teal);
-    animation:spin 0.9s linear infinite;
-  }
-  #loading span{ font-size:12px; color:var(--ink-dim); font-family:'IBM Plex Mono',monospace; letter-spacing:0.5px;}
-  @keyframes spin{ to{ transform:rotate(360deg); } }
-
-  /* ---------- collapsible chip / panel system ---------- */
-  .hud{ display:flex; flex-direction:column; }
-  #title, #legend{ align-items:flex-start; }
-  #controls, #measurePanel{ align-items:flex-end; }
-
-  button.chip, button.panel-close{ font:inherit; -webkit-tap-highlight-color:transparent; }
-  .chip{
-    display:none;
-    pointer-events:auto;
-    align-items:center;
-    gap:8px;
-    background:var(--panel);
-    border:1px solid var(--panel-border);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-radius:999px;
-    padding:0 14px;
-    height:44px;
-    color:var(--ink);
-    cursor:pointer;
-    box-shadow:0 8px 24px rgba(0,0,0,0.32);
-    white-space:nowrap;
-    max-width:min(78vw,320px);
-    overflow:hidden;
-    text-overflow:ellipsis;
-  }
-  .hud:not(.is-open) .chip{ display:inline-flex; }
-  .hud.is-open .chip{ display:none; }
-  .chip svg{ flex:none; color:var(--ink-dim); }
-  .chip span{ overflow:hidden; text-overflow:ellipsis; }
-  .chip .chip-meta{
-    font-family:'IBM Plex Mono', monospace;
-    color:var(--accent-teal);
-    font-size:11.5px;
-  }
-  .chip .chip-dot{
-    width:7px;height:7px;border-radius:50%;
-    background:var(--accent-teal);
-    flex:none;
-    box-shadow:0 0 6px rgba(47,183,201,0.8);
-  }
-  .chip .chip-swatch{
-    width:20px;height:10px;border-radius:3px;
-    background: linear-gradient(to right,#fffe80,#77eb34,#215194,#0c1078);
-    flex:none;
-  }
-  .chip.chip-icon{ width:44px; height:44px; padding:0; justify-content:center; }
-  .chip .chevron{ color:var(--ink-dim); flex:none; }
-
-  .hud .panel{ display:none; position:relative; max-height:80vh; overflow-y:auto; overflow-x:hidden; }
-  .hud.is-open .panel{ display:block; animation:panelIn .16s ease; }
-  @keyframes panelIn{ from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:translateY(0);} }
-
+  button.panel-close{ font:inherit; -webkit-tap-highlight-color:transparent; }
   .panel-close{
     position:absolute;
     top:9px; right:10px;
@@ -421,49 +451,21 @@
   }
   .panel-close:hover{ background:rgba(255,255,255,0.16); color:var(--ink); }
 
-  @media (max-width: 720px){
-    #title{ top:calc(14px + env(safe-area-inset-top)); left:calc(14px + env(safe-area-inset-left)); max-width:min(88vw, 380px); }
-    #controls{ top:calc(14px + env(safe-area-inset-top)); right:calc(14px + env(safe-area-inset-right)); width:min(88vw, 260px); }
-    #legend{ bottom:calc(14px + env(safe-area-inset-bottom)); left:calc(14px + env(safe-area-inset-left)); width:min(88vw, 300px); }
-    #measurePanel{ bottom:calc(14px + env(safe-area-inset-bottom)); right:calc(14px + env(safe-area-inset-right)); width:min(70vw, 240px); }
-    #markersPanel{ bottom:calc(70px + env(safe-area-inset-bottom)); }
-    #hint{ top:calc(64px + env(safe-area-inset-top)); max-width:min(72vw, 300px); }
-    #title h1{ font-size:17px; }
-    #measurePanel .mval{ font-size:18px; }
+  /* ---------- pulse animation (status dot, GPS dot) ---------- */
+  @keyframes lp{
+    0%  { box-shadow: 0 0 0 0   rgba(145,132,217,.55); }
+    70% { box-shadow: 0 0 0 7px rgba(145,132,217,0);   }
+    100%{ box-shadow: 0 0 0 0   rgba(145,132,217,0);   }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .status-dot, .gps-dot-wrap .gps-core{ animation:none !important; }
   }
 
-  @media (max-width: 380px){
-    .chip{ padding:0 10px; gap:6px; }
+  button:focus-visible, [tabindex]:focus-visible, input:focus-visible,
+  select:focus-visible, textarea:focus-visible, a:focus-visible{
+    outline:2px solid var(--color-accent);
+    outline-offset:2px;
   }
-
-  /* ---------- markers ---------- */
-  #markersPanel .chip{ max-width:none; }
-  #markersPanel .panel{ width:min(84vw,280px); padding:14px 42px 15px 18px; }
-  #markersPanel h2{
-    font-family:'Space Grotesk', sans-serif;
-    font-size:11px;
-    text-transform:uppercase;
-    letter-spacing:1px;
-    color:var(--ink-dim);
-    margin:0 0 9px 0;
-    font-weight:600;
-  }
-  .marker-item{
-    display:flex; align-items:flex-start; gap:9px;
-    padding:7px 0;
-    border-bottom:1px solid rgba(255,255,255,0.07);
-    font-size:12px;
-  }
-  .marker-item:last-child{ border-bottom:none; }
-  .marker-dot{ width:9px; height:9px; border-radius:50%; flex:none; margin-top:4px; }
-  .marker-item-text{ flex:1; display:flex; flex-direction:column; min-width:0; }
-  .marker-item-label{ color:var(--ink); line-height:1.5; }
-  .marker-del{
-    flex:none; width:24px; height:24px; border:none; border-radius:50%;
-    background:rgba(255,255,255,0.07); color:var(--ink-dim); cursor:pointer;
-    font-size:12px; display:flex; align-items:center; justify-content:center;
-  }
-  .marker-del:hover{ background:rgba(232,136,136,0.25); color:#e88888; }
 
   #markerModal, #pinModal, #mapModal, #markerDetailModal{
     position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
@@ -503,15 +505,15 @@
     min-height:44px;
   }
   button.mtype-btn.selected, button.msub-btn.selected{
-    background:rgba(47,183,201,0.16); border-color:var(--accent-teal); color:#fff;
+    background:rgba(145,132,217,0.16); border-color:var(--accent-teal); color:#fff;
   }
   .marker-actions{ margin-top:16px; }
   .marker-actions:not([hidden]){ display:flex; gap:8px; }
   button.ctrl.primary{
-    background:var(--accent-teal); color:#04262b; border-color:var(--accent-teal); font-weight:600;
+    background:var(--accent-teal); color:#16182a; border-color:var(--accent-teal); font-weight:600;
   }
   button.ctrl.primary:disabled{ opacity:0.4; cursor:default; }
-  button.ctrl.primary:not(:disabled):hover{ background:#48c6d7; }
+  button.ctrl.primary:not(:disabled):hover{ background:#a89dea; }
 
   .pin-input{
     width:100%;
@@ -569,40 +571,6 @@
     border:1px solid var(--panel-border);
     background:rgba(255,255,255,0.04);
   }
-  .marker-item-desc{
-    display:block;
-    font-size:11px;
-    color:var(--ink-dim);
-    margin-top:2px;
-    white-space:pre-wrap;
-    word-break:break-word;
-  }
-  .sync-status{ font-size:10.5px; color:var(--ink-dim); margin:-2px 0 9px 0; display:flex; align-items:center; gap:5px; }
-  .sync-status .dot{ width:6px; height:6px; border-radius:50%; background:var(--ink-dim); flex:none; }
-  .sync-status.ok .dot{ background:#79d9a0; }
-  .sync-status.offline .dot{ background:#e8c063; }
-  .sync-status.err .dot{ background:#e88888; }
-  .marker-filter-row{ display:flex; gap:6px; margin-bottom:10px; }
-  .mfilter-btn{
-    flex:none;
-    background:rgba(255,255,255,0.05);
-    border:1px solid var(--panel-border);
-    color:var(--ink-dim);
-    font-family:'Inter',sans-serif; font-size:11px;
-    padding:6px 10px; border-radius:20px; cursor:pointer;
-    display:flex; align-items:center; justify-content:center;
-    min-height:26px;
-  }
-  .mfilter-btn[data-mfilter="all"]{ flex:none; }
-  .mfilter-btn.active{ background:rgba(47,183,201,0.16); border-color:var(--accent-teal); color:#fff; }
-  .mfilter-btn svg{ width:13px; height:13px; display:block; }
-  .mfilter-btn[data-mfilter="poi"]{ color:#f4e98c; }
-  .mfilter-btn[data-mfilter="catch"]{ color:#5ad1a0; }
-  .mfilter-btn[data-mfilter="territory"]{ color:#8aa3ab; }
-  .mfilter-btn[data-mfilter="poi"].active{ background:rgba(244,233,140,0.18); border-color:#f4e98c; color:#f4e98c; }
-  .mfilter-btn[data-mfilter="catch"].active{ background:rgba(90,209,160,0.18); border-color:#5ad1a0; color:#5ad1a0; }
-  .mfilter-btn[data-mfilter="territory"].active{ background:rgba(58,160,224,0.18); border-color:#3aa0e0; color:#3aa0e0; }
-
   .map-modal{
     width:min(94vw,560px);
     height:min(78vh,560px);
@@ -693,26 +661,15 @@
     width:1px; height:1px;
     pointer-events:none;
   }
-  .gps-dot-wrap .gps-halo{
-    position:absolute; left:0; top:0;
-    width:16px; height:16px;
-    margin:-8px 0 0 -8px;
-    border-radius:50%;
-    background:rgba(79,195,247,0.35);
-    animation:gpsPulse 2.2s ease-out infinite;
-  }
   .gps-dot-wrap .gps-core{
     position:absolute; left:0; top:0;
-    width:16px; height:16px;
-    margin:-8px 0 0 -8px;
+    width:14px; height:14px;
+    margin:-7px 0 0 -7px;
     border-radius:50%;
-    background:#4fc3f7;
-    border:3px solid #fff;
-    box-shadow:0 2px 6px rgba(0,0,0,0.45), 0 0 0 1px rgba(79,195,247,0.4);
-  }
-  @keyframes gpsPulse{
-    0%{ transform:scale(0.5); opacity:0.9; }
-    100%{ transform:scale(2.6); opacity:0; }
+    background:var(--color-accent);
+    border:2.5px solid var(--color-bg);
+    box-shadow:0 2px 6px rgba(0,0,0,0.45);
+    animation:lp 2.4s ease-out infinite;
   }
 </style>
 </head>
@@ -722,47 +679,62 @@
 
 <div id="scene"></div>
 
-<div class="hud" id="title">
-  <button class="chip" data-toggle="title" aria-label="Kennzahlen anzeigen">
-    <span class="chip-dot"></span>
-    <span id="lakeChipName">Neumühler See</span>
-    <span class="chip-meta" id="lakeChipMeta">17,10 m</span>
-    <svg class="chevron" viewBox="0 0 24 24" width="14" height="14"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div id="statusRow">
+  <div class="status-left">
+    <span class="status-dot off" id="statusDot"></span>
+    <span class="status-text" id="statusText">GPS AUS</span>
+  </div>
+  <button id="settingsBtn" type="button" aria-label="Einstellungen öffnen">
+    <svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="rgba(233,233,237,.8)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"><circle cx="128" cy="128" r="34"/><path d="M197 138.6a72.9 72.9 0 000-21.2l19.6-15.3a8 8 0 002-10.3l-19.2-33.2a8 8 0 00-9.7-3.6l-23 9.3a73 73 0 00-18.3-10.6l-3.5-24.5a8 8 0 00-7.9-6.8h-38.4a8 8 0 00-7.9 6.8l-3.5 24.5a73 73 0 00-18.3 10.6l-23-9.3a8 8 0 00-9.7 3.6L34.4 91.8a8 8 0 002 10.3L56 117.4a72.9 72.9 0 000 21.2l-19.6 15.3a8 8 0 00-2 10.3l19.2 33.2a8 8 0 009.7 3.6l23-9.3a73 73 0 0018.3 10.6l3.5 24.5a8 8 0 007.9 6.8h38.4a8 8 0 007.9-6.8l3.5-24.5a73 73 0 0018.3-10.6l23 9.3a8 8 0 009.7-3.6l19.2-33.2a8 8 0 00-2-10.3z"/></svg>
   </button>
-  <div class="panel">
-    <button class="panel-close" data-toggle="title" aria-label="Schließen">✕</button>
-    <h1 id="lakeTitleH1">Neumühler See</h1>
-    <div class="sub">Interaktive 3D-Tiefenkarte · rekonstruiert aus amtlicher Bathymetrie</div>
-    <div class="stats">
-      <div class="stat"><b id="statMaxDepth">17,10 m</b><span>Max. Tiefe</span></div>
-      <div class="stat"><b id="statLength">3,12 km</b><span>Länge</span></div>
-      <div class="stat"><b id="statMeanDepth">7,9 m</b><span>Ø Tiefe</span></div>
+</div>
+
+<div id="hint">Ziehen zum Drehen · Scrollen zum Zoomen · Rechte Maustaste zum Verschieben · Doppeltippen für Marker</div>
+
+<div id="sheet" data-detent="half">
+  <div id="sheetHeader">
+    <div id="sheetHandle"><div class="grab"></div></div>
+    <div id="lakeRail"></div>
+
+    <div id="depthReadout">
+      <div>
+        <div class="mlab" id="depthLabel">Neumühler See · Messpunkt</div>
+        <div id="depthValueRow"><span id="depthValue">–</span><span id="depthUnit">m</span></div>
+      </div>
+      <div id="depthMaxMeanWrap">
+        <div class="mlab">Max · Ø</div>
+        <div id="depthMaxMean">–</div>
+      </div>
     </div>
-    <div class="weather-row" id="weatherRow" hidden>
-      <span class="weather-item">
-        <svg class="weather-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2 2 0 00-4 0v11.26a4 4 0 104 0z"/></svg>
-        <b id="weatherTemp">–</b>
-      </span>
-      <span class="weather-item">
-        <svg class="weather-icon" id="weatherWindIcon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v16M12 2l-5 5M12 2l5 5"/></svg>
-        <b id="weatherWind">–</b>
-        <span id="weatherWindDir" class="weather-dim">–</span>
-      </span>
+
+    <div class="fade-rule"></div>
+  </div>
+  <div id="sheetScroll">
+    <div id="markerListSection">
+      <div class="mlist-header">
+        <span class="mlab" id="markerCountLabel">Marker · 0</span>
+        <button id="markerFilterCycle" type="button">ALLE</button>
+      </div>
+      <div id="markersSyncStatus" class="sync-status"><span class="dot"></span><span id="markersSyncText">Nicht synchronisiert</span></div>
+      <div id="markersList"></div>
     </div>
+  </div>
+  <div id="sheetPrimaryWrap">
+    <button class="btn-sheet-primary" id="btnAddMarker" type="button">Marker setzen</button>
   </div>
 </div>
 
-<div class="hud" id="controls">
-  <button class="chip chip-icon" data-toggle="controls" aria-label="Einstellungen öffnen">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8a4 4 0 100 8 4 4 0 000-8z"/><path d="M19.4 13a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V19a2 2 0 11-4 0v-.09A1.65 1.65 0 009 17.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 13a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 6.6a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 007.9 2.6h.09A1.65 1.65 0 0011 1v0a2 2 0 014 0v.09c0 .69.39 1.31 1 1.51.62.24 1.34.1 1.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06c-.43.48-.57 1.2-.33 1.82.2.61.82 1 1.51 1H21a2 2 0 010 4h-.09c-.69 0-1.31.39-1.51 1z"/></svg>
-  </button>
-  <div class="panel">
-    <button class="panel-close" data-toggle="controls" aria-label="Schließen">✕</button>
-    <h2>Darstellung</h2>
+<div id="settingsSheet">
+  <div class="sheet-surface">
+    <div class="settings-grab"></div>
+    <button class="panel-close" id="settingsClose" aria-label="Schließen">✕</button>
+
+    <h2 class="settings-h2">Darstellung</h2>
     <div class="row">
       <label for="lakeSelect">See</label>
       <select id="lakeSelect" class="lake-select"></select>
     </div>
+    <div class="settings-lake-meta" id="settingsLakeMeta"></div>
     <div class="row">
       <label>Überhöhung (Tiefe) <span class="val" id="exagVal">8×</span></label>
       <input type="range" id="exagSlider" min="1" max="20" step="0.5" value="8">
@@ -794,57 +766,11 @@
     <div class="btnrow">
       <button class="ctrl" id="btnMap">Auf echter Karte zeigen</button>
     </div>
-  </div>
-</div>
 
-<div class="hud" id="measurePanel">
-  <button class="chip" data-toggle="measurePanel" aria-label="Messpunkt anzeigen">
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
-    <span id="measureChipVal">Messpunkt</span>
-    <svg class="chevron chevron-up" viewBox="0 0 24 24" width="14" height="14"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </button>
-  <div class="panel">
-    <button class="panel-close" data-toggle="measurePanel" aria-label="Schließen">✕</button>
-    <h2>Messpunkt</h2>
-    <div id="measureBody" class="measure-placeholder">Auf die Karte tippen, um die Tiefe an diesem Punkt zu sehen.</div>
-  </div>
-</div>
-
-<div class="hud" id="legend">
-  <button class="chip" data-toggle="legend" aria-label="Tiefenlegende anzeigen">
-    <span class="chip-swatch"></span>
-    <span>Wassertiefe</span>
-    <svg class="chevron chevron-up" viewBox="0 0 24 24" width="14" height="14"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </button>
-  <div class="panel">
-    <button class="panel-close" data-toggle="legend" aria-label="Schließen">✕</button>
-    <h2>Wassertiefe</h2>
+    <h2 class="settings-h2">Wassertiefe</h2>
     <div id="gradientBar"></div>
-    <div class="scale" id="legendScale"><span>0 m</span><span>-4</span><span>-8</span><span>-12</span><span>-17,1 m</span></div>
-    <div class="source" id="legendSource">Quelle Tiefendaten: Ministerium für Landwirtschaft, Umwelt und Verbraucherschutz M-V, Seenreferat (1998). 3D-Rekonstruktion aus der Konturkarte, horizontale Auflösung ≈ 20 m/Zelle.</div>
-  </div>
-</div>
-
-<div class="hud" id="hint">Ziehen zum Drehen · Scrollen zum Zoomen · Rechte Maustaste zum Verschieben · Doppeltippen für Marker</div>
-
-<div class="hud" id="markersPanel">
-  <button class="chip" data-toggle="markersPanel" aria-label="Gespeicherte Marker anzeigen">
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0119 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.4"/></svg>
-    <span>Marker</span>
-    <span class="chip-meta" id="markersChipCount">0</span>
-    <svg class="chevron chevron-up" viewBox="0 0 24 24" width="14" height="14"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  </button>
-  <div class="panel">
-    <button class="panel-close" data-toggle="markersPanel" aria-label="Schließen">✕</button>
-    <h2>Meine Marker</h2>
-    <div id="markersSyncStatus" class="sync-status"><span class="dot"></span><span id="markersSyncText">Nicht synchronisiert</span></div>
-    <div id="markerFilterRow" class="marker-filter-row">
-      <button class="mfilter-btn active" data-mfilter="all">Alle</button>
-      <button class="mfilter-btn" data-mfilter="poi" aria-label="Nur Interessenpunkte" title="Interessenpunkt"></button>
-      <button class="mfilter-btn" data-mfilter="catch" aria-label="Nur Fänge" title="Fang"></button>
-      <button class="mfilter-btn" data-mfilter="territory" aria-label="Nur Reviere" title="Revier"></button>
-    </div>
-    <div id="markersList"></div>
+    <div class="legend-scale" id="legendScale"><span>0 m</span><span>-4</span><span>-8</span><span>-12</span><span>-17,1 m</span></div>
+    <div class="legend-source" id="legendSource">Quelle Tiefendaten: Ministerium für Landwirtschaft, Umwelt und Verbraucherschutz M-V, Seenreferat (1998). 3D-Rekonstruktion aus der Konturkarte, horizontale Auflösung ≈ 20 m/Zelle.</div>
   </div>
 </div>
 
@@ -951,26 +877,26 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var LAKES = [
-  { id:'cambs', name:'Cambser See', lat:53.67904, lon:11.53362 },
-  { id:'cramoner', name:'Cramoner See', lat:53.70377, lon:11.27163 },
-  { id:'duemmer', name:'Dümmersee', lat:53.58133, lon:11.20073 },
-  { id:'fauler', name:'Fauler See', lat:53.61115, lon:11.42716 },
-  { id:'grosseichsen', name:'Großeichsener See', lat:53.74937, lon:11.26073 },
-  { id:'heidensee', name:'Heidensee', lat:53.64250, lon:11.43128 },
-  { id:'kirchstueck', name:'Kirchstücker See', lat:53.69202, lon:11.40579 },
-  { id:'lankow', name:'Lankower See', lat:53.64001, lon:11.37912 },
-  { id:'medeweg', name:'Medeweger See', lat:53.65661, lon:11.39186 },
-  { id:'nedder', name:'Neddersee', lat:53.71832, lon:11.09824 },
-  { id:'neumuehler', name:'Neumühler See', lat:53.64398, lon:11.32909 },
-  { id:'ostorfer_ober', name:'Oberer Ostorfer See', lat:53.61979, lon:11.38622 },
-  { id:'pinnow', name:'Pinnower See', lat:53.60623, lon:11.52779 },
-  { id:'rugen', name:'Rugensee', lat:53.72471, lon:11.38080 },
-  { id:'schwerin_aussen', name:'Schweriner Außensee', lat:53.72860, lon:11.46715 },
-  { id:'schwerin_innen', name:'Schweriner Innensee', lat:53.63505, lon:11.46659 },
-  { id:'trebbow', name:'Trebbower See', lat:53.71046, lon:11.36585 },
-  { id:'ostorfer_unter', name:'Unterer Ostorfer See', lat:53.60949, lon:11.40351 },
-  { id:'wendelstorf', name:'Wendelstorfer See', lat:53.73765, lon:11.26812 },
-  { id:'ziegelsee', name:'Ziegelsee', lat:53.65660, lon:11.42560 }
+  { id:'cambs', name:'Cambser See', lat:53.67904, lon:11.53362, code:'CMB' },
+  { id:'cramoner', name:'Cramoner See', lat:53.70377, lon:11.27163, code:'CRM' },
+  { id:'duemmer', name:'Dümmersee', lat:53.58133, lon:11.20073, code:'DMM' },
+  { id:'fauler', name:'Fauler See', lat:53.61115, lon:11.42716, code:'FAU' },
+  { id:'grosseichsen', name:'Großeichsener See', lat:53.74937, lon:11.26073, code:'GRE' },
+  { id:'heidensee', name:'Heidensee', lat:53.64250, lon:11.43128, code:'HDN' },
+  { id:'kirchstueck', name:'Kirchstücker See', lat:53.69202, lon:11.40579, code:'KRS' },
+  { id:'lankow', name:'Lankower See', lat:53.64001, lon:11.37912, code:'LNK' },
+  { id:'medeweg', name:'Medeweger See', lat:53.65661, lon:11.39186, code:'MDW' },
+  { id:'nedder', name:'Neddersee', lat:53.71832, lon:11.09824, code:'NDR' },
+  { id:'neumuehler', name:'Neumühler See', lat:53.64398, lon:11.32909, code:'NMS' },
+  { id:'ostorfer_ober', name:'Oberer Ostorfer See', lat:53.61979, lon:11.38622, code:'OSO' },
+  { id:'pinnow', name:'Pinnower See', lat:53.60623, lon:11.52779, code:'PNW' },
+  { id:'rugen', name:'Rugensee', lat:53.72471, lon:11.38080, code:'RGN' },
+  { id:'schwerin_aussen', name:'Schweriner Außensee', lat:53.72860, lon:11.46715, code:'SWA' },
+  { id:'schwerin_innen', name:'Schweriner Innensee', lat:53.63505, lon:11.46659, code:'SWI' },
+  { id:'trebbow', name:'Trebbower See', lat:53.71046, lon:11.36585, code:'TRB' },
+  { id:'ostorfer_unter', name:'Unterer Ostorfer See', lat:53.60949, lon:11.40351, code:'OSU' },
+  { id:'wendelstorf', name:'Wendelstorfer See', lat:53.73765, lon:11.26812, code:'WDS' },
+  { id:'ziegelsee', name:'Ziegelsee', lat:53.65660, lon:11.42560, code:'ZGL' }
 ];
 var LAKE_KEY = 'nms_lake_v1';
 function getCurrentLakeId(){
@@ -1005,17 +931,30 @@ function initApp(DATA){
   var lakeMaxDepth = (DATA.stats && DATA.stats.tmax) ? DATA.stats.tmax : STOPS_REF_MAX;
   var depthScale = lakeMaxDepth / STOPS_REF_MAX;
   var stops = [
-    [0.5,  255,255,128], [1.5, 224,252,109], [2.5, 187,247,89], [3.5, 155,242,73],
-    [4.5, 119,235,52],  [5.5, 85,230,32],   [6.5, 57,219,29],  [7.5, 61,204,64],
-    [8.5, 61,191,89],   [9.5, 59,179,117],  [10.5,49,163,138], [11.5,34,150,163],
-    [12.5,30,131,166],  [13.5,33,104,156],  [14.5,33,81,148],  [15.5,29,58,138],
-    [16.5,23,38,131],   [17.1,12,16,120]
+    [0.5 , 188,192,216],
+    [1.5 , 174,177,210],
+    [2.5 , 161,162,205],
+    [3.5 , 149,147,200],
+    [4.5 , 138,134,193],
+    [5.5 , 127,121,185],
+    [6.5 , 117,110,176],
+    [7.5 , 108, 99,165],
+    [8.5 ,  99, 90,155],
+    [9.5 ,  90, 82,144],
+    [10.5,  82, 74,132],
+    [11.5,  73, 66,121],
+    [12.5,  65, 59,109],
+    [13.5,  58, 53, 98],
+    [14.5,  51, 47, 86],
+    [15.5,  45, 41, 74],
+    [16.5,  39, 35, 62],
+    [17.1,  35, 32, 55]
   ].map(function(s){ return [s[0]*depthScale, s[1], s[2], s[3]]; });
   function depthColor(depth){
     var t = -depth; // positive depth magnitude
     if (t <= stops[0][0]){
       var f = t/stops[0][0];
-      return lerpC([255,255,210], stops[0].slice(1), Math.max(0,f));
+      return lerpC([195,199,219], stops[0].slice(1), Math.max(0,f));
     }
     for (var i=0;i<stops.length-1;i++){
       if (t >= stops[i][0] && t <= stops[i+1][0]){
@@ -1027,8 +966,8 @@ function initApp(DATA){
   }
   function lerpC(a,b,f){ return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f]; }
   function landColor(elev){
-    var lowC = [196, 186, 132];
-    var highC = [86, 96, 68];
+    var lowC = [58, 60, 74];
+    var highC = [37, 39, 49];
     var f = Math.min(1, elev/7);
     return lerpC(lowC, highC, f);
   }
@@ -1066,7 +1005,7 @@ function initApp(DATA){
   // ---------- scene setup ----------
   var container = document.getElementById('scene');
   var scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x050b10);
+  scene.background = new THREE.Color(0x161826);
 
   var camera = new THREE.PerspectiveCamera(42, window.innerWidth/window.innerHeight, 1, 40000);
   var renderer = new THREE.WebGLRenderer({antialias:true});
@@ -1126,11 +1065,11 @@ function initApp(DATA){
   // terrain was even visible. 0.6084 is that calibration constant
   // (0.00012 * 5069.6, Neumühler's own worldW/worldD max) preserved so
   // Neumühler looks exactly as before.
-  scene.fog = new THREE.FogExp2(0x050b10, 0.6084 / Math.max(worldW, worldD));
+  scene.fog = new THREE.FogExp2(0x161826, 0.6084 / Math.max(worldW, worldD));
 
   // ---------- lights ----------
-  scene.add(new THREE.AmbientLight(0x9fb8c2, 0.55));
-  var sun = new THREE.DirectionalLight(0xfff2d6, 1.15);
+  scene.add(new THREE.AmbientLight(0xb2b6ca, 0.62));
+  var sun = new THREE.DirectionalLight(0xe9e9ed, 1.0);
   sun.position.set(-worldW*0.35, worldW*0.55, worldD*0.25);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048,2048);
@@ -1138,7 +1077,7 @@ function initApp(DATA){
   sun.shadow.camera.top = worldD; sun.shadow.camera.bottom = -worldD;
   sun.shadow.camera.far = worldW*3;
   scene.add(sun);
-  var rim = new THREE.DirectionalLight(0x2fb7c9, 0.25);
+  var rim = new THREE.DirectionalLight(0x9184d9, 0.30);
   rim.position.set(worldW, worldD*0.2, -worldD);
   scene.add(rim);
 
@@ -1192,12 +1131,12 @@ function initApp(DATA){
   var waterGeo = new THREE.PlaneGeometry(worldW*1.02, worldD*1.02, 1, 1);
   waterGeo.rotateX(-Math.PI/2);
   var waterMat = new THREE.MeshPhysicalMaterial({
-    color: 0x1c6fa0,
+    color: 0x2b2741,
     transparent:true,
-    opacity:0.55,
+    opacity:0.34,
     roughness:0.15,
     metalness:0.0,
-    clearcoat:0.6
+    clearcoat:0.5
   });
   var water = new THREE.Mesh(waterGeo, waterMat);
   water.position.y = 0.02;
@@ -1262,8 +1201,21 @@ function initApp(DATA){
     mmLine.geometry.setFromPoints(pts);
   }
 
-  var measurePanel = document.getElementById('measurePanel');
-  var measureBody = document.getElementById('measureBody');
+  var depthValueEl = document.getElementById('depthValue');
+  var depthUnitEl = document.getElementById('depthUnit');
+  var lastMeasurePoint = null; // {x,z,idx} currently shown in the depth readout — manual tap or live GPS
+
+  function renderDepthValue(e){
+    if (!depthValueEl) return;
+    if (e <= 0){
+      depthValueEl.textContent = fmt1(Math.abs(e));
+      depthValueEl.classList.remove('land');
+    } else {
+      depthValueEl.textContent = '+' + fmt1(e);
+      depthValueEl.classList.add('land');
+    }
+    if (depthUnitEl) depthUnitEl.textContent = 'm';
+  }
 
   function handlePick(clientX, clientY){
     var rect = renderer.domElement.getBoundingClientRect();
@@ -1280,6 +1232,7 @@ function initApp(DATA){
     var idx = row*GW+col;
     var e = EL[idx];
     lastMeasureIdx = idx;
+    lastMeasurePoint = { x:p.x, z:p.z, idx:idx };
 
     mmPin.position.x = p.x;
     mmPin.position.z = p.z;
@@ -1287,14 +1240,7 @@ function initApp(DATA){
     updateMeasureMarkerHeight();
     retriggerDrop(mmPin);
 
-    measurePanel.classList.add('has-data');
-    if (e <= 0){
-      measureBody.innerHTML =
-        '<div class="mrow"><span class="mval">' + fmt1(Math.abs(e)) + ' m</span><span class="mlabel">Wassertiefe</span></div>';
-    } else {
-      measureBody.innerHTML =
-        '<div class="mrow"><span class="mval land">+' + fmt1(e) + ' m</span><span class="mlabel">Uferbereich / Land</span></div>';
-    }
+    renderDepthValue(e);
   }
 
   var downPos = null;
@@ -1404,11 +1350,11 @@ function initApp(DATA){
   var markers = [];
   var markerGroup = new THREE.Group();
   scene.add(markerGroup);
-  var MARKER_COLORS = { poi:0xf4e98c, catch:0x5ad1a0 };
+  var MARKER_COLORS = { poi:0xe4e7f5, catch:0xb5abfc };
   // Species colors are shared between Fang and Revier markers — same fish,
   // same color, regardless of which of the two marker types it's on. The
   // pin's icon (fish vs. flag) is what distinguishes marker type instead.
-  var SPECIES_COLORS = { pike:0x3aa0e0, perch:0xe08a3a, both:0x9a6fe0 };
+  var SPECIES_COLORS = { pike:0xb5abfc, perch:0xcfd3e5, both:0x9184d9 };
   function markerColor(m){
     if (m.subtype && SPECIES_COLORS[m.subtype] != null) return SPECIES_COLORS[m.subtype];
     return MARKER_COLORS[m.type] != null ? MARKER_COLORS[m.type] : MARKER_COLORS.poi;
@@ -1572,19 +1518,16 @@ function initApp(DATA){
   function markerLabel(m){ return (m.subtype && MARKER_LABELS[m.type+'_'+m.subtype]) || MARKER_LABELS[m.type]; }
 
   // ---------- marker type filter ----------
+  var MARKER_TYPE_CODES = { poi:'POI', catch:'FNG', territory:'RVR' };
+  var FILTER_CYCLE = ['all', 'poi', 'catch', 'territory'];
+  var FILTER_LABELS = { all:'ALLE', poi:'POI', catch:'FNG', territory:'RVR' };
   var markerFilter = 'all';
-  var markerFilterRow = document.getElementById('markerFilterRow');
-  if (markerFilterRow){
-    markerFilterRow.querySelectorAll('.mfilter-btn[data-mfilter]').forEach(function(btn){
-      var type = btn.getAttribute('data-mfilter');
-      if (type !== 'all') btn.innerHTML = pinIconFor({ type: type });
-    });
-    markerFilterRow.addEventListener('click', function(e){
-      var btn = e.target.closest('.mfilter-btn');
-      if (!btn) return;
-      markerFilter = btn.getAttribute('data-mfilter');
-      markerFilterRow.querySelectorAll('.mfilter-btn').forEach(function(b){ b.classList.remove('active'); });
-      btn.classList.add('active');
+  var markerFilterCycleBtn = document.getElementById('markerFilterCycle');
+  if (markerFilterCycleBtn){
+    markerFilterCycleBtn.addEventListener('click', function(){
+      var next = FILTER_CYCLE[(FILTER_CYCLE.indexOf(markerFilter) + 1) % FILTER_CYCLE.length];
+      markerFilter = next;
+      markerFilterCycleBtn.textContent = FILTER_LABELS[next];
       renderMarkerList();
     });
   }
@@ -1596,9 +1539,13 @@ function initApp(DATA){
   }
 
   var markersListEl = document.getElementById('markersList');
-  var markersChipCount = document.getElementById('markersChipCount');
+  var markerCountLabelEl = document.getElementById('markerCountLabel');
+  function markerDepthAt(m){
+    var e = EL[m.idx];
+    return e <= 0 ? (fmt1(Math.abs(e)) + ' m') : ('+' + fmt1(e) + ' m');
+  }
   function renderMarkerList(){
-    if (markersChipCount) markersChipCount.textContent = markers.length;
+    if (markerCountLabelEl) markerCountLabelEl.textContent = 'Marker · ' + markers.length;
     updateMarkerPinVisibility();
     if (!markersListEl) return;
     var visible = markerFilter === 'all' ? markers : markers.filter(function(m){ return m.type === markerFilter; });
@@ -1610,26 +1557,24 @@ function initApp(DATA){
       markersListEl.innerHTML = '<div class="measure-placeholder">Keine Marker dieses Typs.</div>';
       return;
     }
-    function escapeHtml(s){
-      return s.replace(/[&<>"']/g, function(c){
-        return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
-      });
-    }
     markersListEl.innerHTML = visible.slice().reverse().map(function(m){
-      return '<div class="marker-item">' +
-        '<span class="marker-dot" style="background:#'+markerColor(m).toString(16).padStart(6,'0')+'"></span>' +
-        '<span class="marker-item-text">' +
-          '<span class="marker-item-label">'+markerLabel(m)+'</span>' +
-          (m.description ? '<span class="marker-item-desc">'+escapeHtml(m.description)+'</span>' : '') +
-        '</span>' +
-        '<button class="marker-del" data-del="'+m.id+'" aria-label="Marker löschen">✕</button>' +
+      return '<div class="mk-row" data-open="'+m.id+'">' +
+        '<span class="mk-code">'+(MARKER_TYPE_CODES[m.type]||'POI')+'</span>' +
+        '<span class="mk-label">'+markerLabel(m)+'</span>' +
+        '<span class="mk-depth">'+markerDepthAt(m)+'</span>' +
+        '<button class="mk-del" data-del="'+m.id+'" aria-label="Marker löschen">✕</button>' +
       '</div>';
     }).join('');
   }
   if (markersListEl){
     markersListEl.addEventListener('click', function(e){
-      var btn = e.target.closest('[data-del]');
-      if (btn) removeMarker(btn.getAttribute('data-del'));
+      var delBtn = e.target.closest('[data-del]');
+      if (delBtn){ removeMarker(delBtn.getAttribute('data-del')); return; }
+      var row = e.target.closest('[data-open]');
+      if (row){
+        var m = markers.find(function(mm){ return mm.id === row.getAttribute('data-open'); });
+        if (m) openMarkerDetail(m);
+      }
     });
   }
 
@@ -1684,19 +1629,8 @@ function initApp(DATA){
     });
   });
   if (markerPhotoRemove) markerPhotoRemove.addEventListener('click', resetMarkerPhotoPicker);
-  function openMarkerModal(clientX, clientY){
-    var rect = renderer.domElement.getBoundingClientRect();
-    mouseNDC.x = ((clientX-rect.left)/rect.width)*2 - 1;
-    mouseNDC.y = -((clientY-rect.top)/rect.height)*2 + 1;
-    raycaster.setFromCamera(mouseNDC, camera);
-    var hits = raycaster.intersectObject(terrain, false);
-    if (!hits.length) return;
-    var p = hits[0].point;
-    var col = Math.round((p.x + worldW/2)/CELL);
-    var row = Math.round((p.z + worldD/2)/CELL);
-    col = Math.max(0, Math.min(GW-1, col));
-    row = Math.max(0, Math.min(GH-1, row));
-    pendingPoint = { x:p.x, z:p.z, idx: row*GW+col };
+  function openMarkerModalAtPoint(x, z, idx){
+    pendingPoint = { x:x, z:z, idx:idx };
     pendingType = null; pendingSub = null;
     if (markerModal){
       markerModal.querySelectorAll('.mtype-btn').forEach(function(b){ b.classList.remove('selected'); });
@@ -1710,6 +1644,20 @@ function initApp(DATA){
       resetMarkerPhotoPicker();
       markerModal.classList.add('show');
     }
+  }
+  function openMarkerModal(clientX, clientY){
+    var rect = renderer.domElement.getBoundingClientRect();
+    mouseNDC.x = ((clientX-rect.left)/rect.width)*2 - 1;
+    mouseNDC.y = -((clientY-rect.top)/rect.height)*2 + 1;
+    raycaster.setFromCamera(mouseNDC, camera);
+    var hits = raycaster.intersectObject(terrain, false);
+    if (!hits.length) return;
+    var p = hits[0].point;
+    var col = Math.round((p.x + worldW/2)/CELL);
+    var row = Math.round((p.z + worldD/2)/CELL);
+    col = Math.max(0, Math.min(GW-1, col));
+    row = Math.max(0, Math.min(GH-1, row));
+    openMarkerModalAtPoint(p.x, p.z, row*GW+col);
   }
   function closeMarkerModal(){
     if (markerModal) markerModal.classList.remove('show');
@@ -1925,9 +1873,9 @@ function initApp(DATA){
   }
 
   loadMarkers();
-  var markersChipBtn = document.querySelector('#markersPanel .chip');
-  if (markersChipBtn){
-    markersChipBtn.addEventListener('click', function(){
+  var markerListSectionEl = document.getElementById('markerListSection');
+  if (markerListSectionEl){
+    markerListSectionEl.addEventListener('click', function(){
       if (backendConfigured() && !getStoredPin()){
         ensurePin().then(function(pin){ if (pin) loadMarkers(); });
       }
@@ -1943,7 +1891,7 @@ function initApp(DATA){
   var gpsGroup = new THREE.Group();
   var gpsDotEl = document.createElement('div');
   gpsDotEl.className = 'gps-dot-wrap';
-  gpsDotEl.innerHTML = '<div class="gps-halo"></div><div class="gps-core"></div>';
+  gpsDotEl.innerHTML = '<div class="gps-core"></div>';
   var gpsDot = new THREE.CSS2DObject(gpsDotEl);
   gpsGroup.add(gpsDot);
   // Same CSS2DRenderer quirk as measureMarker above: cascade visibility to
@@ -1963,6 +1911,19 @@ function initApp(DATA){
     gpsStatus.textContent = text;
     gpsStatus.className = 'gps-status' + (kind ? (' '+kind) : '');
   }
+
+  // ---------- compact top status row: "GPS AKTIV/AUS · <temp>° <wind> <dir>" ----------
+  var statusDotEl = document.getElementById('statusDot');
+  var statusTextEl = document.getElementById('statusText');
+  var gpsActive = false;
+  var lastWeather = null; // set by loadWeather() below
+  function updateStatusText(){
+    if (statusDotEl) statusDotEl.classList.toggle('off', !gpsActive);
+    var parts = [gpsActive ? 'GPS AKTIV' : 'GPS AUS'];
+    if (lastWeather) parts.push(Math.round(lastWeather.temp) + '° ' + Math.round(lastWeather.wind) + ' ' + lastWeather.dir);
+    if (statusTextEl) statusTextEl.textContent = parts.join(' · ');
+  }
+  updateStatusText();
 
   // ---------- nearest-lake suggestion ----------
   // When GPS puts you well outside the currently-loaded lake, check
@@ -2017,27 +1978,24 @@ function initApp(DATA){
     hideNearestLakeSuggest();
   });
 
-  // Live "depth where I currently am" — reuses the Messpunkt panel's own
-  // display, but only while the user hasn't manually tapped a point (a
+  // Live "depth where I currently am" — reuses the depth readout in the
+  // sheet, but only while the user hasn't manually tapped a point (a
   // manual tap always wins and stays shown, same as before).
   function updateGpsDepthReadout(w){
-    if (lastMeasureIdx >= 0 || !measureBody) return;
+    if (lastMeasureIdx >= 0) return;
     var col = Math.round((w.x + worldW/2)/CELL);
     var row = Math.round((w.z + worldD/2)/CELL);
     col = Math.max(0, Math.min(GW-1, col));
     row = Math.max(0, Math.min(GH-1, row));
-    var e = EL[row*GW+col];
-    if (e <= 0){
-      measureBody.innerHTML =
-        '<div class="mrow"><span class="mval">' + fmt1(Math.abs(e)) + ' m</span><span class="mlabel">Wassertiefe an deiner Position</span></div>';
-    } else {
-      measureBody.innerHTML =
-        '<div class="mrow"><span class="mval land">+' + fmt1(e) + ' m</span><span class="mlabel">Ufer/Land an deiner Position</span></div>';
-    }
+    var idx = row*GW+col;
+    renderDepthValue(EL[idx]);
+    lastMeasurePoint = { x:w.x, z:w.z, idx:idx };
   }
   function resetGpsDepthReadout(){
-    if (lastMeasureIdx >= 0 || !measureBody) return;
-    measureBody.innerHTML = 'Auf die Karte tippen, um die Tiefe an diesem Punkt zu sehen.';
+    if (lastMeasureIdx >= 0) return;
+    if (depthValueEl) depthValueEl.textContent = '–';
+    if (depthUnitEl) depthUnitEl.textContent = 'm';
+    lastMeasurePoint = null;
   }
 
   function onGeoSuccess(pos){
@@ -2068,6 +2026,8 @@ function initApp(DATA){
     else if (err && err.code === 3) msg = 'Zeitüberschreitung bei GPS-Anfrage';
     setGpsStatus(msg, 'err');
     gpsToggle.checked = false;
+    gpsActive = false;
+    updateStatusText();
     updateMapGpsMarker(null);
     resetGpsDepthReadout();
     hideNearestLakeSuggest();
@@ -2081,6 +2041,8 @@ function initApp(DATA){
         return;
       }
       setGpsStatus('Suche GPS-Signal …', '');
+      gpsActive = true;
+      updateStatusText();
       gpsWatchId = navigator.geolocation.watchPosition(onGeoSuccess, onGeoError, {
         enableHighAccuracy: true, maximumAge: 4000, timeout: 15000
       });
@@ -2088,6 +2050,8 @@ function initApp(DATA){
       if (gpsWatchId !== null){ navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
       gpsGroup.visible = false;
       setGpsStatus('', '');
+      gpsActive = false;
+      updateStatusText();
       updateMapGpsMarker(null);
       resetGpsDepthReadout();
       hideNearestLakeSuggest();
@@ -2178,7 +2142,7 @@ function initApp(DATA){
     mapModal.addEventListener('click', function(e){ if (e.target === mapModal) mapModal.classList.remove('show'); });
   }
 
-  // ---------- lake picker + dynamic title/legend text ----------
+  // ---------- lake picker: rail (sheet) + select (settings sheet) ----------
   var lakeSelect = document.getElementById('lakeSelect');
   if (lakeSelect){
     lakeSelect.innerHTML = LAKES.map(function(l){
@@ -2191,24 +2155,37 @@ function initApp(DATA){
       }
     });
   }
+  var lakeRailEl = document.getElementById('lakeRail');
+  if (lakeRailEl){
+    lakeRailEl.innerHTML = LAKES.map(function(l){
+      return '<button type="button" class="lake-pill' + (l.id===DATA.id?' active':'') + '" data-lake="' + l.id + '">' + l.code + '</button>';
+    }).join('');
+    var activeLakePill = lakeRailEl.querySelector('.lake-pill.active');
+    if (activeLakePill) activeLakePill.scrollIntoView({ block:'nearest', inline:'center' });
+    lakeRailEl.addEventListener('click', function(e){
+      var btn = e.target.closest('.lake-pill');
+      if (!btn) return;
+      var id = btn.getAttribute('data-lake');
+      if (id && id !== DATA.id){
+        setCurrentLakeId(id);
+        location.reload();
+      }
+    });
+  }
 
   var stats = DATA.stats || {};
   function fmtKm(n){ return n.toLocaleString('de-DE', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-  var lakeChipName = document.getElementById('lakeChipName');
-  var lakeChipMeta = document.getElementById('lakeChipMeta');
-  var lakeTitleH1 = document.getElementById('lakeTitleH1');
-  var statMaxDepth = document.getElementById('statMaxDepth');
-  var statLength = document.getElementById('statLength');
-  var statMeanDepth = document.getElementById('statMeanDepth');
-  if (lakeChipName) lakeChipName.textContent = DATA.name;
-  if (lakeTitleH1) lakeTitleH1.textContent = DATA.name;
+  var depthLabelEl = document.getElementById('depthLabel');
+  var depthMaxMeanEl = document.getElementById('depthMaxMean');
+  var settingsLakeMetaEl = document.getElementById('settingsLakeMeta');
+  if (depthLabelEl) depthLabelEl.textContent = DATA.name + ' · Messpunkt';
   document.title = DATA.name + ' — Interaktive 3D-Tiefenkarte';
-  if (stats.tmax != null){
-    if (lakeChipMeta) lakeChipMeta.textContent = fmt1(stats.tmax) + ' m';
-    if (statMaxDepth) statMaxDepth.textContent = fmt1(stats.tmax) + ' m';
+  if (depthMaxMeanEl && stats.tmax != null && stats.tmean != null){
+    depthMaxMeanEl.textContent = fmt1(stats.tmax) + ' · ' + fmt1(stats.tmean);
   }
-  if (stats.lengthKm != null && statLength) statLength.textContent = fmtKm(stats.lengthKm) + ' km';
-  if (stats.tmean != null && statMeanDepth) statMeanDepth.textContent = fmt1(stats.tmean) + ' m';
+  if (settingsLakeMetaEl && stats.lengthKm != null){
+    settingsLakeMetaEl.textContent = 'Länge ' + fmtKm(stats.lengthKm) + ' km';
+  }
 
   var legendScale = document.getElementById('legendScale');
   if (legendScale && stats.tmax){
@@ -2236,11 +2213,6 @@ function initApp(DATA){
   function loadWeather(){
     var lakeMeta = LAKES.filter(function(l){ return l.id === DATA.id; })[0];
     if (!lakeMeta || lakeMeta.lat == null || lakeMeta.lon == null) return;
-    var weatherRow = document.getElementById('weatherRow');
-    var weatherTemp = document.getElementById('weatherTemp');
-    var weatherWind = document.getElementById('weatherWind');
-    var weatherWindDir = document.getElementById('weatherWindDir');
-    var weatherWindIcon = document.getElementById('weatherWindIcon');
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lakeMeta.lat +
       '&longitude=' + lakeMeta.lon +
       '&current=temperature_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timezone=auto';
@@ -2248,13 +2220,10 @@ function initApp(DATA){
       .then(function(data){
         var c = data.current;
         if (!c) return;
-        if (weatherTemp) weatherTemp.textContent = Math.round(c.temperature_2m) + '°C';
-        if (weatherWind) weatherWind.textContent = Math.round(c.wind_speed_10m) + ' km/h';
-        if (weatherWindDir) weatherWindDir.textContent = 'aus ' + compass16(c.wind_direction_10m);
-        if (weatherWindIcon) weatherWindIcon.style.transform = 'rotate(' + c.wind_direction_10m + 'deg)';
-        if (weatherRow) weatherRow.hidden = false;
+        lastWeather = { temp: c.temperature_2m, wind: c.wind_speed_10m, dir: compass16(c.wind_direction_10m) };
+        updateStatusText();
       })
-      .catch(function(){ /* offline or blocked — just leave the weather row hidden */ });
+      .catch(function(){ /* offline or blocked — status row just shows GPS state alone */ });
   }
   loadWeather();
 
@@ -2301,6 +2270,22 @@ function initApp(DATA){
     controls.update();
   });
 
+  // "Marker setzen" — primary sheet button, uses whatever point the depth
+  // readout is currently showing (a manual tap always wins; falls back to
+  // the live GPS position if the user hasn't tapped the map yet).
+  var btnAddMarker = document.getElementById('btnAddMarker');
+  var hintEl = document.getElementById('hint');
+  if (btnAddMarker) btnAddMarker.addEventListener('click', function(){
+    if (lastMeasurePoint){
+      openMarkerModalAtPoint(lastMeasurePoint.x, lastMeasurePoint.z, lastMeasurePoint.idx);
+    } else if (hintEl){
+      var prevText = hintEl.textContent, prevOpacity = hintEl.style.opacity;
+      hintEl.textContent = 'Erst auf die Karte tippen, um einen Punkt zu wählen';
+      hintEl.style.opacity = '1';
+      setTimeout(function(){ hintEl.textContent = prevText; hintEl.style.opacity = prevOpacity; }, 2600);
+    }
+  });
+
   // ---------- render loop ----------
   function animate(){
     requestAnimationFrame(animate);
@@ -2321,49 +2306,93 @@ function initApp(DATA){
 <script>
 (function(){
   "use strict";
-  var IDS = ['title','controls','legend','measurePanel','markersPanel'];
-  function isDesktop(){ return window.innerWidth > 720; }
-  function closeOtherPanels(exceptId){
-    IDS.forEach(function(otherId){
-      if (otherId !== exceptId){
-        var other = document.getElementById(otherId);
-        if (other) other.classList.remove('is-open');
-      }
-    });
-  }
-  function initState(){
-    IDS.forEach(function(id){
-      var el = document.getElementById(id);
-      if(!el) return;
-      if (isDesktop()) el.classList.add('is-open');
-      else el.classList.remove('is-open');
-    });
-  }
-  initState();
-  document.addEventListener('click', function(e){
-    var t = e.target.closest('[data-toggle]');
-    if(!t) return;
-    var id = t.getAttribute('data-toggle');
-    var el = document.getElementById(id);
-    if(!el) return;
-    var opening = !el.classList.contains('is-open');
-    if (opening && !isDesktop()) closeOtherPanels(id);
-    el.classList.toggle('is-open');
+
+  // ---------- settings sheet (gear button) ----------
+  var settingsSheet = document.getElementById('settingsSheet');
+  var settingsBtn = document.getElementById('settingsBtn');
+  var settingsClose = document.getElementById('settingsClose');
+  function openSettingsSheet(){ if (settingsSheet) settingsSheet.classList.add('show'); }
+  function closeSettingsSheet(){ if (settingsSheet) settingsSheet.classList.remove('show'); }
+  if (settingsBtn) settingsBtn.addEventListener('click', openSettingsSheet);
+  if (settingsClose) settingsClose.addEventListener('click', closeSettingsSheet);
+  if (settingsSheet) settingsSheet.addEventListener('click', function(e){
+    if (e.target === settingsSheet) closeSettingsSheet();
   });
-  var measureBody = document.getElementById('measureBody');
-  var measureHud = document.getElementById('measurePanel');
-  var measureChipVal = document.getElementById('measureChipVal');
-  if (measureBody){
-    var mo = new MutationObserver(function(){
-      var mval = measureBody.querySelector('.mval');
-      if (measureChipVal) measureChipVal.textContent = mval ? mval.textContent : 'Messpunkt';
-      if (mval && measureHud && !isDesktop() && !measureHud.classList.contains('is-open')){
-        closeOtherPanels('measurePanel');
-        measureHud.classList.add('is-open');
-        setTimeout(function(){ measureHud.classList.remove('is-open'); }, 3200);
-      }
+
+  // ---------- bottom sheet: drag/tap-to-cycle detents, snap, persist ----------
+  // Bound to the grab handle specifically (not the whole header) so taps on
+  // the lake-rail pills or other interactive header content aren't hijacked
+  // by the detent-cycling tap gesture.
+  var sheet = document.getElementById('sheet');
+  var sheetHandle = document.getElementById('sheetHandle');
+  var DETENTS = { peek:168, half:432, full:0 }; // 'full' resolved from 92vh at use time
+  var DETENT_ORDER = ['peek','half','full'];
+  var DETENT_KEY = 'nms_sheet_detent_v1';
+
+  function detentHeight(name){
+    if (name === 'full') return window.innerHeight * 0.92;
+    return DETENTS[name];
+  }
+  function setDetent(name, skipPersist){
+    if (!sheet || DETENT_ORDER.indexOf(name) === -1) return;
+    sheet.dataset.detent = name;
+    if (!skipPersist){ try{ localStorage.setItem(DETENT_KEY, name); }catch(e){} }
+  }
+  function getStoredDetent(){
+    try{
+      var d = localStorage.getItem(DETENT_KEY);
+      if (d && DETENT_ORDER.indexOf(d) !== -1) return d;
+    }catch(e){}
+    return 'half';
+  }
+  setDetent(getStoredDetent(), true);
+
+  if (sheet && sheetHandle){
+    var dragStartY = null, dragStartHeight = 0, didDrag = false;
+    function currentHeightPx(){
+      var rect = sheet.getBoundingClientRect();
+      return rect.height;
+    }
+    function nearestDetent(px){
+      var best = 'half', bestDiff = Infinity;
+      DETENT_ORDER.forEach(function(name){
+        var diff = Math.abs(detentHeight(name) - px);
+        if (diff < bestDiff){ bestDiff = diff; best = name; }
+      });
+      return best;
+    }
+    sheetHandle.addEventListener('pointerdown', function(ev){
+      dragStartY = ev.clientY;
+      dragStartHeight = currentHeightPx();
+      didDrag = false;
+      sheet.classList.add('dragging');
+      sheetHandle.classList.add('dragging');
+      try{ sheetHandle.setPointerCapture(ev.pointerId); }catch(e){}
     });
-    mo.observe(measureBody, {childList:true, subtree:true, characterData:true});
+    sheetHandle.addEventListener('pointermove', function(ev){
+      if (dragStartY === null) return;
+      var dy = ev.clientY - dragStartY;
+      if (Math.abs(dy) > 4) didDrag = true;
+      var target = Math.max(DETENTS.peek, Math.min(detentHeight('full'), dragStartHeight - dy));
+      sheet.style.height = target + 'px';
+    });
+    function endDrag(ev){
+      if (dragStartY === null) return;
+      dragStartY = null;
+      sheet.classList.remove('dragging');
+      sheetHandle.classList.remove('dragging');
+      sheet.style.height = '';
+      var px = currentHeightPx();
+      setDetent(nearestDetent(px));
+    }
+    sheetHandle.addEventListener('pointerup', endDrag);
+    sheetHandle.addEventListener('pointercancel', endDrag);
+    sheetHandle.addEventListener('click', function(){
+      // A plain tap (no drag) on the handle cycles to the next detent.
+      if (didDrag) return;
+      var i = DETENT_ORDER.indexOf(sheet.dataset.detent);
+      setDetent(DETENT_ORDER[(i + 1) % DETENT_ORDER.length]);
+    });
   }
 })();
 </script>
