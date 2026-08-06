@@ -93,6 +93,24 @@
     letter-spacing:0.6px;
     margin-top:1px;
   }
+  .weather-row:not([hidden]){
+    display:flex;
+    gap:16px;
+    margin-top:9px;
+    padding-top:9px;
+    border-top:1px solid rgba(255,255,255,0.08);
+  }
+  .weather-item{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    color:var(--ink);
+  }
+  .weather-icon{ flex:none; color:var(--accent-teal); }
+  #weatherWindIcon{ transition:transform .3s ease; }
+  .weather-dim{ color:var(--ink-dim); font-size:11px; }
 
   #controls{
     top:22px; right:22px;
@@ -718,6 +736,17 @@
       <div class="stat"><b id="statMaxDepth">17,10 m</b><span>Max. Tiefe</span></div>
       <div class="stat"><b id="statLength">3,12 km</b><span>Länge</span></div>
       <div class="stat"><b id="statMeanDepth">7,9 m</b><span>Ø Tiefe</span></div>
+    </div>
+    <div class="weather-row" id="weatherRow" hidden>
+      <span class="weather-item">
+        <svg class="weather-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2 2 0 00-4 0v11.26a4 4 0 104 0z"/></svg>
+        <b id="weatherTemp">–</b>
+      </span>
+      <span class="weather-item">
+        <svg class="weather-icon" id="weatherWindIcon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v16M12 2l-5 5M12 2l5 5"/></svg>
+        <b id="weatherWind">–</b>
+        <span id="weatherWindDir" class="weather-dim">–</span>
+      </span>
     </div>
   </div>
 </div>
@@ -2060,6 +2089,40 @@ function initApp(DATA){
       (stats.surveyDate ? ' · Seevermessung ' + stats.surveyDate : '') +
       '. 3D-Rekonstruktion aus amtlichen Tiefenlinien, Zellgröße ≈ ' + CELL.toFixed(1) + ' m.';
   }
+
+  // ---------- current weather (temperature + wind) at this lake ----------
+  // Open-Meteo, not wetteronline.de — no key, no cost, CORS-open, works
+  // straight from a static GitHub Pages site same as the OSM tiles do.
+  // Current conditions only, no forecast, matching what was actually asked
+  // for; re-fetched only on load/lake-switch, not polled.
+  var COMPASS_16 = ['N','NNO','NO','ONO','O','OSO','SO','SSO','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  function compass16(deg){
+    return COMPASS_16[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+  }
+  function loadWeather(){
+    var lakeMeta = LAKES.filter(function(l){ return l.id === DATA.id; })[0];
+    if (!lakeMeta || lakeMeta.lat == null || lakeMeta.lon == null) return;
+    var weatherRow = document.getElementById('weatherRow');
+    var weatherTemp = document.getElementById('weatherTemp');
+    var weatherWind = document.getElementById('weatherWind');
+    var weatherWindDir = document.getElementById('weatherWindDir');
+    var weatherWindIcon = document.getElementById('weatherWindIcon');
+    var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lakeMeta.lat +
+      '&longitude=' + lakeMeta.lon +
+      '&current=temperature_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timezone=auto';
+    fetch(url).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('http '+r.status)); })
+      .then(function(data){
+        var c = data.current;
+        if (!c) return;
+        if (weatherTemp) weatherTemp.textContent = Math.round(c.temperature_2m) + '°C';
+        if (weatherWind) weatherWind.textContent = Math.round(c.wind_speed_10m) + ' km/h';
+        if (weatherWindDir) weatherWindDir.textContent = 'aus ' + compass16(c.wind_direction_10m);
+        if (weatherWindIcon) weatherWindIcon.style.transform = 'rotate(' + c.wind_direction_10m + 'deg)';
+        if (weatherRow) weatherRow.hidden = false;
+      })
+      .catch(function(){ /* offline or blocked — just leave the weather row hidden */ });
+  }
+  loadWeather();
 
   // ---------- UI wiring ----------
   var exagSlider = document.getElementById('exagSlider');

@@ -490,6 +490,46 @@ Three independent features, no interaction between them:
   list-only filter, since leaving non-matching pins visible on the map
   while the list hides them would be a confusing mismatch.
 
+## Current weather (temp + wind) — BUILT (2026-08-06)
+
+User initially asked to source this from wetteronline.de — that has no
+public API, and scraping it would be fragile/likely against its ToS, so
+this uses **Open-Meteo** instead (`api.open-meteo.com`, free, no key,
+CORS-open — verified with a direct `curl` including an `Origin` header,
+`Access-Control-Allow-Origin: *`). Explained the substitution to the user
+rather than silently swapping data sources. Current conditions only, no
+forecast — matches what was actually asked for; fetched once on page load
+via `loadWeather()`, not polled/refreshed on a timer.
+
+Displayed inside the **expanded** title panel only (a new `.weather-row`
+below the existing stats row), not in the collapsed chip — deliberate,
+same reasoning as the lake picker earlier: avoid touching the collapsed-
+chip layout that the overlap-regression test cares about. Uses each lake's
+centroid `lat`/`lon` already sitting in the `LAKES` array (added for the
+nearest-lake GPS feature) — no new per-lake data needed.
+
+Wind direction shown both as text (16-point compass via `compass16()`,
+e.g. "aus SW") and as a rotated arrow icon (`#weatherWindIcon`, CSS
+`transform: rotate(<deg>deg)`, verified against a mocked 225° response —
+arrow icon is drawn pointing north/up by default and rotated directly by
+Open-Meteo's `wind_direction_10m`, which is already the standard
+meteorological "direction the wind is coming FROM" convention, i.e. the
+icon acts like a wind vane pointing into the wind — don't add another
+180° "fix" here, that would make it backwards).
+
+**Couldn't fully verify the live network call in this sandbox** — Playwright's
+browser context here gets `net::ERR_CONNECTION_RESET` hitting
+api.open-meteo.com directly (same class of restriction hit earlier this
+session for CDN scripts, which needed local-package routing to test at
+all), even though plain `curl` from the same sandbox reaches it fine. Verified
+the actual app logic thoroughly via a mocked response instead (parsing,
+rounding, compass conversion, icon rotation, show/hide all checked
+against known values) and left it at that — a real browser with normal
+internet access should reach it exactly like the app's existing Leaflet/
+OSM map tiles already do in production. If weather ever silently doesn't
+show for a real user, check the Network tab for that request specifically
+before assuming the code is wrong.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated
