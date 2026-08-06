@@ -153,13 +153,20 @@
   #sheet[data-detent="peek"] #sheetScroll,
   #sheet[data-detent="peek"] #sheetPrimaryWrap,
   #sheet[data-detent="peek"] .fade-rule{ display:none; }
-  #sheetHeader{ flex:none; }
-  #sheetHandle{
-    padding:10px 0 16px;
+  /* Draggable area is the whole header (handle + depth readout), not just
+     the thin 3px grab bar — matches how it visually reads ("looks like it
+     can be slid") and is a much more forgiving touch target on a real
+     phone. Safe now that the lake rail (interactive buttons) was removed
+     from the header; nothing left in here to steal drags from. */
+  #sheetHeader{
+    flex:none;
     cursor:grab;
     touch-action:none;
   }
-  #sheetHandle.dragging{ cursor:grabbing; }
+  #sheetHeader.dragging{ cursor:grabbing; }
+  #sheetHandle{
+    padding:10px 0 16px;
+  }
   #sheetHandle .grab{
     width:34px; height:3px; border-radius:2px;
     background:rgba(233,233,237,.22);
@@ -2288,11 +2295,12 @@ function initApp(DATA){
   });
 
   // ---------- bottom sheet: drag/tap-to-cycle detents, snap, persist ----------
-  // Bound to the grab handle specifically (not the whole header) so taps on
-  // the lake-rail pills or other interactive header content aren't hijacked
-  // by the detent-cycling tap gesture.
+  // Bound to the whole header (handle + depth readout), not just the 3px
+  // grab bar — a thin strip is too fiddly a target for a real-finger drag.
+  // Safe to widen since the header has no other interactive content (the
+  // lake rail that used to live here is gone) to steal drags from.
   var sheet = document.getElementById('sheet');
-  var sheetHandle = document.getElementById('sheetHandle');
+  var sheetHeader = document.getElementById('sheetHeader');
   var DETENTS = { peek:108, half:432, full:0 }; // 'full' resolved from 92vh at use time
   var DETENT_ORDER = ['peek','half','full'];
   var DETENT_KEY = 'nms_sheet_detent_v1';
@@ -2315,7 +2323,7 @@ function initApp(DATA){
   }
   setDetent(getStoredDetent(), true);
 
-  if (sheet && sheetHandle){
+  if (sheet && sheetHeader){
     var dragStartY = null, dragStartHeight = 0, didDrag = false;
     function currentHeightPx(){
       var rect = sheet.getBoundingClientRect();
@@ -2329,18 +2337,19 @@ function initApp(DATA){
       });
       return best;
     }
-    sheetHandle.addEventListener('pointerdown', function(ev){
+    sheetHeader.addEventListener('pointerdown', function(ev){
       dragStartY = ev.clientY;
       dragStartHeight = currentHeightPx();
       didDrag = false;
       sheet.classList.add('dragging');
-      sheetHandle.classList.add('dragging');
-      try{ sheetHandle.setPointerCapture(ev.pointerId); }catch(e){}
+      sheetHeader.classList.add('dragging');
+      try{ sheetHeader.setPointerCapture(ev.pointerId); }catch(e){}
     });
-    sheetHandle.addEventListener('pointermove', function(ev){
+    sheetHeader.addEventListener('pointermove', function(ev){
       if (dragStartY === null) return;
       var dy = ev.clientY - dragStartY;
       if (Math.abs(dy) > 4) didDrag = true;
+      if (didDrag && ev.cancelable) ev.preventDefault();
       var target = Math.max(DETENTS.peek, Math.min(detentHeight('full'), dragStartHeight - dy));
       sheet.style.height = target + 'px';
     });
@@ -2348,15 +2357,15 @@ function initApp(DATA){
       if (dragStartY === null) return;
       dragStartY = null;
       sheet.classList.remove('dragging');
-      sheetHandle.classList.remove('dragging');
+      sheetHeader.classList.remove('dragging');
       sheet.style.height = '';
       var px = currentHeightPx();
       setDetent(nearestDetent(px));
     }
-    sheetHandle.addEventListener('pointerup', endDrag);
-    sheetHandle.addEventListener('pointercancel', endDrag);
-    sheetHandle.addEventListener('click', function(){
-      // A plain tap (no drag) on the handle cycles to the next detent.
+    sheetHeader.addEventListener('pointerup', endDrag);
+    sheetHeader.addEventListener('pointercancel', endDrag);
+    sheetHeader.addEventListener('click', function(){
+      // A plain tap (no drag) anywhere in the header cycles to the next detent.
       if (didDrag) return;
       var i = DETENT_ORDER.indexOf(sheet.dataset.detent);
       setDetent(DETENT_ORDER[(i + 1) % DETENT_ORDER.length]);
