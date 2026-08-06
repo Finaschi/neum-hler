@@ -626,6 +626,39 @@ headless Chromium has no notch to report, and this class of bug (chrome
 sitting in the wrong place, content overflowing a fixed-height container)
 only showed up once real hardware was in the loop.
 
+## Sheet fix: home-indicator safe area left a visible gap (real-device only) — BUILT (2026-08-06)
+
+Reported as "a weird darker box right under the depth box" from a real
+iPhone screenshot: at `peek`, a ~60pt flat rectangle of plain page
+background appeared between the sheet's rounded card and the true bottom
+of the screen — the sheet's `position:fixed; bottom:0` box was ending
+short of the actual viewport bottom by roughly `env(safe-area-inset-bottom)`
+(the home-indicator area). **This never showed up in this sandbox's
+Playwright/headless-Chromium testing** — headless Chromium always reports
+`env(safe-area-inset-bottom)` as `0`, so there's no way to catch this
+class of bug without a real notched/home-indicator device (or a real
+screenshot from one, which is how it was actually found).
+
+Fix: `#sheet` now has `padding-bottom: env(safe-area-inset-bottom)` so
+its own coloured box — not just a background hack — extends under the
+home indicator, and all three detent heights grew to match
+(`calc(108px + env(safe-area-inset-bottom))` etc., `box-sizing:border-box`
+means the padding eats into that height rather than inflating it further,
+so the visible content area is unchanged). The JS drag math measures the
+same value at startup via a throwaway probe element (`padding-bottom:
+env(safe-area-inset-bottom)` + `getBoundingClientRect().height`) and folds
+it into `DETENTS`/`detentHeight()` so live-drag clamping matches the CSS
+detents exactly instead of jumping by that amount when a drag ends and
+CSS's `calc()` height takes over.
+
+**Not independently re-verified on a real device from this sandbox** —
+same category of limitation as the earlier weather/network checks: the
+fix follows the standard, well-documented remedy for "fixed-bottom
+element/bar leaves a gap above the home indicator on iOS" and the 0-value
+(sandbox) case was regression-tested to confirm no gap and no layout
+shift, but confirming the exact real-device pixel result needs another
+screenshot from the user.
+
 ## UI redesign — bottom sheet + mono terrain ("Nocturne") — BUILT (2026-08-06)
 
 Full chrome replacement, from a design handoff bundle (`Neumuehler Sheet

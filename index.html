@@ -133,8 +133,17 @@
     position:fixed;
     left:0; right:0; bottom:0;
     z-index:5;
-    height:432px;
-    max-height:92vh;
+    height:calc(432px + env(safe-area-inset-bottom));
+    max-height:calc(92vh + env(safe-area-inset-bottom));
+    /* Padding (not just background) so the sheet's own box — not just its
+       colour — extends under the home indicator; a real notched/Dynamic
+       Island iPhone left a visible gap of plain page background below the
+       sheet otherwise (env(safe-area-inset-bottom) is always 0 in the
+       sandbox's headless Chromium, so this never showed up in testing —
+       only caught from a real device screenshot). box-sizing:border-box
+       (global) keeps this padding inside the explicit height below, so it
+       eats into the box rather than inflating it further. */
+    padding-bottom:env(safe-area-inset-bottom);
     background:color-mix(in srgb, var(--color-surface) 90%, transparent);
     backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
     border-top:1px solid rgba(233,233,237,.12);
@@ -147,9 +156,9 @@
   #sheet.dragging{ transition:none; }
   /* peek: the "slim" state — handle + depth readout only, no list, no
      button, tightly fit so the map gets almost the whole screen. */
-  #sheet[data-detent="peek"]{ height:108px; }
-  #sheet[data-detent="half"]{ height:432px; }
-  #sheet[data-detent="full"]{ height:92vh; }
+  #sheet[data-detent="peek"]{ height:calc(108px + env(safe-area-inset-bottom)); }
+  #sheet[data-detent="half"]{ height:calc(432px + env(safe-area-inset-bottom)); }
+  #sheet[data-detent="full"]{ height:calc(92vh + env(safe-area-inset-bottom)); }
   #sheet[data-detent="peek"] #sheetScroll,
   #sheet[data-detent="peek"] #sheetPrimaryWrap,
   #sheet[data-detent="peek"] .fade-rule{ display:none; }
@@ -2301,12 +2310,23 @@ function initApp(DATA){
   // lake rail that used to live here is gone) to steal drags from.
   var sheet = document.getElementById('sheet');
   var sheetHeader = document.getElementById('sheetHeader');
-  var DETENTS = { peek:108, half:432, full:0 }; // 'full' resolved from 92vh at use time
+  // Measure env(safe-area-inset-bottom) so the JS drag math (used for live
+  // dragging feedback) matches the CSS detent heights exactly — both now
+  // include the home-indicator safe area, see #sheet's calc() heights.
+  var safeBottom = 0;
+  (function(){
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed; bottom:0; left:0; height:0; padding-bottom:env(safe-area-inset-bottom); visibility:hidden; pointer-events:none;';
+    document.body.appendChild(probe);
+    safeBottom = probe.getBoundingClientRect().height;
+    probe.remove();
+  })();
+  var DETENTS = { peek:108+safeBottom, half:432+safeBottom, full:0 }; // 'full' resolved from 92vh at use time
   var DETENT_ORDER = ['peek','half','full'];
   var DETENT_KEY = 'nms_sheet_detent_v1';
 
   function detentHeight(name){
-    if (name === 'full') return window.innerHeight * 0.92;
+    if (name === 'full') return window.innerHeight * 0.92 + safeBottom;
     return DETENTS[name];
   }
   function setDetent(name, skipPersist){
