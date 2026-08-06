@@ -162,13 +162,53 @@ writes `data/lakes/<slug>.json`. What it does:
    `FIT_TY` are always 0 by construction (grid origin = `LAT_REF`/`LON_REF`
    exactly).
 
-Baked so far: `neumuehler`, `cramoner`, `duemmer`, `medeweg`, `nedder` (all
-near Schwerin, user-requested). To add another lake: confirm it has
-`see_verm=3` (fully surveyed) in the `sg` layer first — about 1600 of the
-~2459 MV lakes don't, and the user explicitly wants those left out of the
-picker rather than shown with a fabricated fallback shape — then run the
-bake script and add the lake to the `LAKES` array in `index.html`
-(`~line 690`, both places if you touch the picker UI).
+Baked so far: `neumuehler`, `cramoner`, `duemmer`, `medeweg`, `nedder`,
+`schwerin_aussen`, `schwerin_innen`, `cambs`, `pinnow` (all near Schwerin,
+user-requested). To add another lake: confirm it has `see_verm=3` (fully
+surveyed) in the `sg` layer first — about 1600 of the ~2459 MV lakes don't,
+and the user explicitly wants those left out of the picker rather than
+shown with a fabricated fallback shape — then run the bake script and add
+the lake to the `LAKES` array in `index.html` (`~line 825`, both places if
+you touch the picker UI).
+
+**Two gotchas hit adding the second batch of lakes — don't rediscover them:**
+
+1. **A lake can be stored as multiple disconnected polygon parts.**
+   Schweriner See is really two basins (Innensee + Außensee) joined by a
+   narrow channel, and the `sg`/`sg_tl` layers store it as one record with
+   a 2-part MultiPolygon — not two separate lake records. `bake_lake.py`
+   now supports `--part N` (0-indexed by area, largest first) to bake just
+   one part, clipping depth bands to it via `.intersection()`, plus
+   `--display-name` to give that part its own name in the app. Verified the
+   split makes geographic sense before committing to it: part areas (35.9M
+   m² vs 27.1M m²) and centroid latitudes (part 0 further north) matched
+   the real Außensee/Innensee split; deep bands (45m+) intersect only part
+   0, confirming the deepest hole is really in Außensee, not an artifact of
+   arbitrary clipping. **When `--part` is used, per-lake stats (tmax excepted,
+   which comes from the clipped grid either way) are recomputed from the
+   clipped geometry/grid instead of trusting the `sg` layer's attrs** — those
+   describe the *whole* original record (both basins combined), which would
+   misrepresent a single basin if reported as its own stats.
+2. **MV has multiple lakes sharing the same name in different regions** —
+   there are two "Pinnower See", ~200km apart, and the wrong one (near
+   Ueckermünde, nowhere near Schwerin) sorts *before* the right one in the
+   WFS response's document order. `fetch_lake_record()`/`main()` now accept
+   `--see-sp <id>` (the "Seeschlüssel Seeprojekt" field, a stable per-lake
+   ID) to disambiguate — run once without it first, it'll print every
+   candidate's `see_sp`/region/centroid to stderr if there's more than one
+   name match, then re-run with the right `--see-sp`. Don't assume a name
+   match is unique without checking.
+
+**Also fixed while adding these**: `scene.fog`'s density used to be a fixed
+constant (`0.00012`) calibrated for Neumühler See's ~5km extent. Schweriner
+Außensee is ~14km across, and the same fixed fog density fogged out almost
+the entire lake to black before it was even visible — looked like the
+terrain had failed to load. Fog density is now computed from
+`Math.max(worldW, worldD)` at scene-setup time (`0.6084 / dist`, where
+0.6084 preserves Neumühler's exact prior look — verified pixel-identical
+via screenshot diff). If you bake something even bigger than Schweriner
+See, this should keep scaling correctly, but double check with a
+screenshot anyway.
 
 ### App-side integration
 

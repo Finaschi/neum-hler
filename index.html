@@ -827,7 +827,11 @@ var LAKES = [
   { id:'cramoner', name:'Cramoner See' },
   { id:'duemmer', name:'Dümmersee' },
   { id:'medeweg', name:'Medeweger See' },
-  { id:'nedder', name:'Neddersee' }
+  { id:'nedder', name:'Neddersee' },
+  { id:'schwerin_aussen', name:'Schweriner Außensee' },
+  { id:'schwerin_innen', name:'Schweriner Innensee' },
+  { id:'cambs', name:'Cambser See' },
+  { id:'pinnow', name:'Pinnower See' }
 ];
 var LAKE_KEY = 'nms_lake_v1';
 function getCurrentLakeId(){
@@ -924,7 +928,6 @@ function initApp(DATA){
   var container = document.getElementById('scene');
   var scene = new THREE.Scene();
   scene.background = new THREE.Color(0x050b10);
-  scene.fog = new THREE.FogExp2(0x050b10, 0.00012);
 
   var camera = new THREE.PerspectiveCamera(42, window.innerWidth/window.innerHeight, 1, 40000);
   var renderer = new THREE.WebGLRenderer({antialias:true});
@@ -977,6 +980,14 @@ function initApp(DATA){
 
   var worldW = (GW-1)*CELL;
   var worldD = (GH-1)*CELL;
+
+  // Fog density scales inversely with lake size — a fixed density was
+  // calibrated for Neumühler See (~5km across) and completely fogged out
+  // much larger lakes like Schweriner See (~14km across) before their
+  // terrain was even visible. 0.6084 is that calibration constant
+  // (0.00012 * 5069.6, Neumühler's own worldW/worldD max) preserved so
+  // Neumühler looks exactly as before.
+  scene.fog = new THREE.FogExp2(0x050b10, 0.6084 / Math.max(worldW, worldD));
 
   // ---------- lights ----------
   scene.add(new THREE.AmbientLight(0x9fb8c2, 0.55));

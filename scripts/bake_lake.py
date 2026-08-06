@@ -12,6 +12,17 @@ Usage:
     python3 scripts/bake_lake.py "Dümmersee" duemmer
     python3 scripts/bake_lake.py "Medeweger See" medeweg
     python3 scripts/bake_lake.py "Neddersee" nedder
+    python3 scripts/bake_lake.py "Cambser See" cambs
+    python3 scripts/bake_lake.py "Pinnower See" pinnow
+
+    A lake stored as multiple disconnected polygon parts (e.g. Schweriner
+    See, which is really two basins — Innensee and Außensee — joined by a
+    narrow channel) can be split with --part (0-indexed, largest first) and
+    given its own display name:
+    python3 scripts/bake_lake.py "Schweriner See" schwerin_aussen \
+        --part 0 --display-name "Schweriner Außensee"
+    python3 scripts/bake_lake.py "Schweriner See" schwerin_innen \
+        --part 1 --display-name "Schweriner Innensee"
 
 What it does:
   1. Fetches the lake's outline + metadata from the `sg` WFS layer.
@@ -78,9 +89,12 @@ def parse_multisurface_features(xml_text, tag):
     return blocks
 
 
-def polygon_from_feature_block(block):
+def polygon_parts_from_feature_block(block):
     """A feature's <geometry> may contain multiple surfaceMembers (MultiPolygon).
-    Each surfaceMember's <Polygon> may have an exterior ring and interior rings."""
+    Returns the individual parts, unmerged (each buffer(0)'d to fix any
+    self-intersections) — most lakes have exactly one, but a lake that's
+    really two basins connected by a narrow channel (e.g. Schweriner
+    See = Innensee + Außensee) comes back as two disconnected parts."""
     polys = []
     for surf in re.findall(r"<surfaceMember\b.*?</surfaceMember>", block, re.S):
         ext_m = re.search(r"<exterior\b.*?</exterior>", surf, re.S)
@@ -97,31 +111,63 @@ def polygon_from_feature_block(block):
                 interiors.append(int_rings[0])
         if len(exterior) >= 4:
             try:
-                polys.append(Polygon(exterior, interiors))
+                polys.append(Polygon(exterior, interiors).buffer(0))
             except Exception:
                 pass
+    return polys
+
+
+def polygon_from_feature_block(block):
+    polys = polygon_parts_from_feature_block(block)
     if not polys:
         return None
     if len(polys) == 1:
-        return polys[0].buffer(0)
-    return unary_union([p.buffer(0) for p in polys])
+        return polys[0]
+    return unary_union(polys)
 
 
-def fetch_lake_record(name):
+def fetch_lake_record(name, see_sp=None):
+    """see_sp disambiguates: MV has multiple lakes sharing the same name in
+    different regions (e.g. two 'Pinnower See', ~200km apart — the sg layer
+    lists an unrelated one near Ueckermünde *before* the Schwerin one in
+    document order, so picking "the first name match" is not safe without
+    this). see_sp ('Seeschlüssel Seeprojekt') is a stable per-lake ID;
+    look it up by running this once without --see-sp and reading the
+    printed value for the candidate that's actually in the right place
+    (cross-check against its printed centroid / stalu region code)."""
     xml = wfs_get({
         "SERVICE": "WFS", "REQUEST": "GetFeature", "VERSION": "1.1.0",
         "TYPENAME": "sg",
     })
+    candidates = []
     for block in parse_multisurface_features(xml, "sg"):
         ng = re.search(r"<qgs:see_gn>([^<]*)</qgs:see_gn>", block)
-        if ng and ng.group(1) == name:
-            attrs = dict(re.findall(r"<qgs:(\w+)>([^<]*)</qgs:\1>", block))
-            geom = polygon_from_feature_block(block)
-            return attrs, geom
-    raise SystemExit(f"Lake '{name}' not found in sg layer")
+        if not ng or ng.group(1) != name:
+            continue
+        attrs = dict(re.findall(r"<qgs:(\w+)>([^<]*)</qgs:\1>", block))
+        if see_sp is not None and attrs.get("see_sp") != str(see_sp):
+            continue
+        candidates.append((block, attrs))
+
+    if not candidates:
+        raise SystemExit(f"Lake '{name}' (see_sp={see_sp}) not found in sg layer")
+    if len(candidates) > 1 and see_sp is None:
+        to_wgs84 = Transformer.from_crs(SRC_CRS, DST_CRS, always_xy=True)
+        print(f"WARNING: {len(candidates)} lakes named '{name}' found — using the first one. "
+              f"If that's wrong, re-run with --see-sp to pick the right one:", file=sys.stderr)
+        for block, attrs in candidates:
+            g = polygon_from_feature_block(block)
+            lon, lat = to_wgs84.transform(*list(g.centroid.coords)[0])
+            print(f"  see_sp={attrs.get('see_sp')} stalu={attrs.get('stalu')} "
+                  f"tmax={attrs.get('tmax')} centroid=({lat:.4f},{lon:.4f})", file=sys.stderr)
+
+    block, attrs = candidates[0]
+    parts = sorted(polygon_parts_from_feature_block(block), key=lambda p: -p.area)
+    geom = parts[0] if len(parts) == 1 else unary_union(parts)
+    return attrs, geom, parts
 
 
-def fetch_depth_bands(name, bbox):
+def fetch_depth_bands(name, bbox, clip_geom=None):
     lox, loy, hix, hiy = bbox
     xml = wfs_get({
         "SERVICE": "WFS", "REQUEST": "GetFeature", "VERSION": "1.1.0",
@@ -150,6 +196,14 @@ def fetch_depth_bands(name, bbox):
         only_name = max(by_name, key=lambda k: len(by_name[k]))
         bands = by_name[only_name]
         print(f"  WARNING: multiple lake names in bbox {list(by_name.keys())}, using '{only_name}'")
+
+    if clip_geom is not None:
+        clipped = []
+        for von, bis, geom in bands:
+            g = geom.intersection(clip_geom)
+            if not g.is_empty and g.area > 1.0:
+                clipped.append((von, bis, g))
+        bands = clipped
 
     bands.sort(key=lambda b: b[0])
     return bands
@@ -258,15 +312,43 @@ def shoreline_latlon(outline):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("usage: bake_lake.py '<Seename>' <slug>", file=sys.stderr)
-        sys.exit(1)
-    name, slug = sys.argv[1], sys.argv[2]
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("name", help="Seename as it appears in the sg WFS layer")
+    parser.add_argument("slug", help="output filename slug (data/lakes/<slug>.json)")
+    parser.add_argument("--part", type=int, default=None, metavar="N",
+                         help="For a lake stored as multiple disconnected polygon parts "
+                              "(e.g. Schweriner See = Innensee + Außensee): bake only part N "
+                              "(0-indexed, sorted by area descending, so 0 = largest part). "
+                              "Depth bands are clipped to that part too. Stats (tmax/tmean/"
+                              "volume/area/length/width/shoreline) are then recomputed from "
+                              "the clipped geometry/grid instead of trusting the sg layer's "
+                              "attrs, since those describe the whole original lake record.")
+    parser.add_argument("--display-name", default=None,
+                         help="Name shown in the app (defaults to the WFS Seename) — use this "
+                              "to give a split-off part its own name, e.g. 'Schweriner Außensee'")
+    parser.add_argument("--see-sp", default=None,
+                         help="Disambiguate when multiple lakes share the same Seename (MV has "
+                              "several) — value of the 'Seeschlüssel Seeprojekt' field. Run "
+                              "once without this first; if there's more than one match, the "
+                              "script lists each candidate's see_sp + region + centroid so you "
+                              "can pick the right one.")
+    args = parser.parse_args()
+    name, slug = args.name, args.slug
+    display_name = args.display_name or name
 
     print(f"[{slug}] fetching lake record for '{name}'...")
-    attrs, outline = fetch_lake_record(name)
+    attrs, outline, parts = fetch_lake_record(name, see_sp=args.see_sp)
     if outline is None or outline.is_empty:
         raise SystemExit("no outline geometry found")
+
+    clip_geom = None
+    if args.part is not None:
+        if args.part >= len(parts):
+            raise SystemExit(f"--part {args.part} out of range, lake only has {len(parts)} part(s)")
+        outline = parts[args.part]
+        clip_geom = outline
+        print(f"[{slug}] using part {args.part} of {len(parts)} (area {outline.area:,.0f} m2 of {sum(p.area for p in parts):,.0f} m2 total)")
 
     e_min0, n_min0, e_max0, n_max0 = outline.bounds
     span_e = e_max0 - e_min0
@@ -283,7 +365,10 @@ def main():
 
     print(f"[{slug}] fetching depth-band contours...")
     bbox_pad = pad + 50
-    bands = fetch_depth_bands(name, (e_min0 - bbox_pad, n_min0 - bbox_pad, e_max0 + bbox_pad, n_max0 + bbox_pad))
+    bands = fetch_depth_bands(
+        name, (e_min0 - bbox_pad, n_min0 - bbox_pad, e_max0 + bbox_pad, n_max0 + bbox_pad),
+        clip_geom=clip_geom,
+    )
     print(f"[{slug}] {len(bands)} depth bands found")
 
     print(f"[{slug}] computing exact geo-transform...")
@@ -299,15 +384,33 @@ def main():
 
     shoreline = shoreline_latlon(outline)
 
-    out = {
-        "id": slug,
-        "name": name,
-        "gw": gw, "gh": gh, "cellSize": cell,
-        "elevation": [round(float(v), 3) for v in elevation],
-        "latRef": lat0, "lonRef": lon0,
-        "fitU": fit_u, "fitV": fit_v, "fitTx": 0.0, "fitTy": 0.0,
-        "shoreline": shoreline,
-        "stats": {
+    if clip_geom is not None:
+        # This is one part of a multi-basin lake — the sg layer's attrs
+        # (tmax/td/vol/flaeche/leff/beff/ul) describe the *whole* original
+        # record, not this part, so recompute everything real from the
+        # clipped geometry/grid instead of reporting whole-lake numbers
+        # under a single basin's name.
+        underwater = elevation[elevation < 0]
+        tmean = float(-underwater.mean()) if underwater.size else None
+        volume_m3 = float((-underwater).sum() * cell * cell) if underwater.size else None
+        mrr = outline.minimum_rotated_rectangle
+        mc = list(mrr.exterior.coords)
+        sides = [math.hypot(mc[i + 1][0] - mc[i][0], mc[i + 1][1] - mc[i][1]) for i in range(4)]
+        stats = {
+            "tmax": max_depth_in_grid,
+            "tmean": tmean,
+            "volumeM3": volume_m3,
+            "areaM2": outline.area,
+            "lengthKm": max(sides[0], sides[1]) / 1000.0,
+            "widthKm": min(sides[0], sides[1]) / 1000.0,
+            "shoreLengthKm": outline.length / 1000.0,
+            "surveyDate": attrs.get("verm_datum"),
+            "source": "LUNG MV – Land Mecklenburg-Vorpommern, CC BY-SA (umweltkarten.lung-mv.de); "
+                      f"Teilbecken von amtlich \"{name}\" — Kennzahlen für dieses Becken selbst "
+                      "berechnet (nicht amtlich einzeln ausgewiesen).",
+        }
+    else:
+        stats = {
             "tmax": float(attrs.get("tmax", max_depth_in_grid)),
             "tmean": float(attrs["td"]) if attrs.get("td") else None,
             "volumeM3": int(float(attrs["vol"])) if attrs.get("vol") else None,
@@ -317,7 +420,17 @@ def main():
             "shoreLengthKm": float(attrs["ul"]) if attrs.get("ul") else None,
             "surveyDate": attrs.get("verm_datum"),
             "source": "LUNG MV – Land Mecklenburg-Vorpommern, CC BY-SA (umweltkarten.lung-mv.de)",
-        },
+        }
+
+    out = {
+        "id": slug,
+        "name": display_name,
+        "gw": gw, "gh": gh, "cellSize": cell,
+        "elevation": [round(float(v), 3) for v in elevation],
+        "latRef": lat0, "lonRef": lon0,
+        "fitU": fit_u, "fitV": fit_v, "fitTx": 0.0, "fitTy": 0.0,
+        "shoreline": shoreline,
+        "stats": stats,
     }
 
     import os
