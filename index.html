@@ -56,7 +56,7 @@
   /* ---------- status row (top) ---------- */
   #statusRow{
     position:absolute;
-    top:calc(14px + env(safe-area-inset-top) + 30px);
+    top:calc(env(safe-area-inset-top) + 8px);
     left:22px; right:22px;
     z-index:5;
     display:flex; align-items:center; justify-content:space-between;
@@ -89,7 +89,7 @@
   /* ---------- hint pill ---------- */
   #hint{
     position:absolute;
-    top:calc(14px + env(safe-area-inset-top) + 76px);
+    top:calc(env(safe-area-inset-top) + 46px);
     left:50%;
     transform:translateX(-50%);
     width:max-content;
@@ -145,9 +145,14 @@
     overflow:hidden;
   }
   #sheet.dragging{ transition:none; }
-  #sheet[data-detent="peek"]{ height:168px; }
+  /* peek: the "slim" state — handle + depth readout only, no list, no
+     button, tightly fit so the map gets almost the whole screen. */
+  #sheet[data-detent="peek"]{ height:108px; }
   #sheet[data-detent="half"]{ height:432px; }
   #sheet[data-detent="full"]{ height:92vh; }
+  #sheet[data-detent="peek"] #sheetScroll,
+  #sheet[data-detent="peek"] #sheetPrimaryWrap,
+  #sheet[data-detent="peek"] .fade-rule{ display:none; }
   #sheetHeader{ flex:none; }
   #sheetHandle{
     padding:10px 0 16px;
@@ -172,28 +177,6 @@
     font-size:9px; letter-spacing:.14em; text-transform:uppercase;
     color:rgba(233,233,237,.45);
   }
-
-  /* ---------- lake code rail ---------- */
-  #lakeRail{
-    display:flex; gap:7px;
-    padding:0 20px 16px;
-    overflow-x:auto; overflow-y:hidden;
-    -webkit-overflow-scrolling:touch;
-    scrollbar-width:none;
-  }
-  #lakeRail::-webkit-scrollbar{ display:none; }
-  .lake-pill{
-    flex:none;
-    font-variant-numeric:tabular-nums;
-    font-family:inherit;
-    font-size:11px; letter-spacing:.12em;
-    padding:7px 13px; border-radius:999px;
-    border:1px solid rgba(233,233,237,.12);
-    color:rgba(233,233,237,.55);
-    background:transparent;
-    cursor:pointer;
-  }
-  .lake-pill.active{ border-color:var(--color-accent); color:var(--color-accent-300); }
 
   /* ---------- depth readout ---------- */
   #depthReadout{ display:flex; align-items:flex-end; justify-content:space-between; padding:0 20px 16px; }
@@ -694,7 +677,6 @@
 <div id="sheet" data-detent="half">
   <div id="sheetHeader">
     <div id="sheetHandle"><div class="grab"></div></div>
-    <div id="lakeRail"></div>
 
     <div id="depthReadout">
       <div>
@@ -2142,7 +2124,7 @@ function initApp(DATA){
     mapModal.addEventListener('click', function(e){ if (e.target === mapModal) mapModal.classList.remove('show'); });
   }
 
-  // ---------- lake picker: rail (sheet) + select (settings sheet) ----------
+  // ---------- lake picker (settings sheet only — see 2026-08-06 slimmer-sheet fix) ----------
   var lakeSelect = document.getElementById('lakeSelect');
   if (lakeSelect){
     lakeSelect.innerHTML = LAKES.map(function(l){
@@ -2151,23 +2133,6 @@ function initApp(DATA){
     lakeSelect.addEventListener('change', function(){
       if (lakeSelect.value !== DATA.id){
         setCurrentLakeId(lakeSelect.value);
-        location.reload();
-      }
-    });
-  }
-  var lakeRailEl = document.getElementById('lakeRail');
-  if (lakeRailEl){
-    lakeRailEl.innerHTML = LAKES.map(function(l){
-      return '<button type="button" class="lake-pill' + (l.id===DATA.id?' active':'') + '" data-lake="' + l.id + '">' + l.code + '</button>';
-    }).join('');
-    var activeLakePill = lakeRailEl.querySelector('.lake-pill.active');
-    if (activeLakePill) activeLakePill.scrollIntoView({ block:'nearest', inline:'center' });
-    lakeRailEl.addEventListener('click', function(e){
-      var btn = e.target.closest('.lake-pill');
-      if (!btn) return;
-      var id = btn.getAttribute('data-lake');
-      if (id && id !== DATA.id){
-        setCurrentLakeId(id);
         location.reload();
       }
     });
@@ -2325,7 +2290,7 @@ function initApp(DATA){
   // by the detent-cycling tap gesture.
   var sheet = document.getElementById('sheet');
   var sheetHandle = document.getElementById('sheetHandle');
-  var DETENTS = { peek:168, half:432, full:0 }; // 'full' resolved from 92vh at use time
+  var DETENTS = { peek:108, half:432, full:0 }; // 'full' resolved from 92vh at use time
   var DETENT_ORDER = ['peek','half','full'];
   var DETENT_KEY = 'nms_sheet_detent_v1';
 

@@ -583,6 +583,49 @@ already stale post-multi-lake), `apple-mobile-web-app-title`,
 calibration comment near `scene.fog` were **not** touched — both refer to
 the lake, not the brand.
 
+## Sheet redesign follow-up fixes (real-device feedback) — BUILT (2026-08-06)
+
+The first cut of the sheet redesign (below) shipped with three real bugs,
+caught from an actual iPhone screenshot rather than the sandbox's
+Playwright viewport (which doesn't emulate `env(safe-area-inset-top)`, so
+these weren't visible in testing):
+
+1. **Status row sat too far down** — `top:calc(14px + env(safe-area-inset-top)
+   + 30px)` was carrying over spacing calibrated for the *design mockup's*
+   390×844 frame (which has no real notch/Dynamic Island to dodge), so on
+   a real device it stacked an extra 30px+14px below the safe area for no
+   reason, leaving a dead gap under the iOS status bar. Fixed to
+   `calc(env(safe-area-inset-top) + 8px)` — `#hint` retuned to match
+   (`+46px`, was `+76px`).
+2. **Lake-code rail removed from the main sheet entirely** — redundant
+   with the lake `<select>` already in the settings sheet, and the user
+   found it added clutter for no benefit now that switching lives in
+   Settings. Deleted `#lakeRail`/`.lake-pill` (CSS+HTML+JS) outright, not
+   just hidden — one less thing fighting for vertical space in the header.
+3. **`peek` detent redefined as a real "just the depth" state** — previously
+   `peek` was 168px tall but still rendered the *full* header (which, with
+   the lake rail, needed ~230px+), so content overflowed the sheet's own
+   box. Diagnosed as a flex layout issue: `#sheetHeader{flex:none}` never
+   shrinks to fit, so at a height smaller than its natural content size the
+   excess simply overflowed downward past the sheet's rounded card — while
+   separately, the absolutely-positioned primary button (`bottom:26px`)
+   sat at a fixed offset from the sheet's bottom regardless, landing
+   directly on top of the depth value text. Rather than patch around it,
+   `peek` was redefined per the user's explicit ask ("completely hidable
+   to the point where you really only see the depth"): `height:108px`
+   (tightly fit to handle + depth readout, nothing else) plus
+   `#sheet[data-detent="peek"] #sheetScroll, ...  #sheetPrimaryWrap, ...
+   .fade-rule{ display:none; }` to hide the list/button/divider outright
+   instead of letting them get clipped. `DETENTS.peek` in the JS updated
+   to match (108, was 168) — it's the drag-clamp floor too.
+
+**Lesson for next time**: request (or generate) a real-device screenshot
+before considering a mobile layout change done — the Playwright viewport
+tests in this sandbox cannot catch `env(safe-area-inset-*)` issues since
+headless Chromium has no notch to report, and this class of bug (chrome
+sitting in the wrong place, content overflowing a fixed-height container)
+only showed up once real hardware was in the loop.
+
 ## UI redesign — bottom sheet + mono terrain ("Nocturne") — BUILT (2026-08-06)
 
 Full chrome replacement, from a design handoff bundle (`Neumuehler Sheet
