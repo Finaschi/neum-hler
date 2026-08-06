@@ -540,6 +540,26 @@
   .sync-status.ok .dot{ background:#79d9a0; }
   .sync-status.offline .dot{ background:#e8c063; }
   .sync-status.err .dot{ background:#e88888; }
+  .marker-filter-row{ display:flex; gap:6px; margin-bottom:10px; }
+  .mfilter-btn{
+    flex:none;
+    background:rgba(255,255,255,0.05);
+    border:1px solid var(--panel-border);
+    color:var(--ink-dim);
+    font-family:'Inter',sans-serif; font-size:11px;
+    padding:6px 10px; border-radius:20px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    min-height:26px;
+  }
+  .mfilter-btn[data-mfilter="all"]{ flex:none; }
+  .mfilter-btn.active{ background:rgba(47,183,201,0.16); border-color:var(--accent-teal); color:#fff; }
+  .mfilter-btn svg{ width:13px; height:13px; display:block; }
+  .mfilter-btn[data-mfilter="poi"]{ color:#f4e98c; }
+  .mfilter-btn[data-mfilter="catch"]{ color:#5ad1a0; }
+  .mfilter-btn[data-mfilter="territory"]{ color:#8aa3ab; }
+  .mfilter-btn[data-mfilter="poi"].active{ background:rgba(244,233,140,0.18); border-color:#f4e98c; color:#f4e98c; }
+  .mfilter-btn[data-mfilter="catch"].active{ background:rgba(90,209,160,0.18); border-color:#5ad1a0; color:#5ad1a0; }
+  .mfilter-btn[data-mfilter="territory"].active{ background:rgba(58,160,224,0.18); border-color:#3aa0e0; color:#3aa0e0; }
 
   .map-modal{
     width:min(94vw,560px);
@@ -765,6 +785,12 @@
     <button class="panel-close" data-toggle="markersPanel" aria-label="Schließen">✕</button>
     <h2>Meine Marker</h2>
     <div id="markersSyncStatus" class="sync-status"><span class="dot"></span><span id="markersSyncText">Nicht synchronisiert</span></div>
+    <div id="markerFilterRow" class="marker-filter-row">
+      <button class="mfilter-btn active" data-mfilter="all">Alle</button>
+      <button class="mfilter-btn" data-mfilter="poi" aria-label="Nur Interessenpunkte" title="Interessenpunkt"></button>
+      <button class="mfilter-btn" data-mfilter="catch" aria-label="Nur Fänge" title="Fang"></button>
+      <button class="mfilter-btn" data-mfilter="territory" aria-label="Nur Reviere" title="Revier"></button>
+    </div>
     <div id="markersList"></div>
   </div>
 </div>
@@ -1451,13 +1477,43 @@ function initApp(DATA){
   };
   function markerLabel(m){ return (m.subtype && MARKER_LABELS[m.type+'_'+m.subtype]) || MARKER_LABELS[m.type]; }
 
+  // ---------- marker type filter ----------
+  var markerFilter = 'all';
+  var markerFilterRow = document.getElementById('markerFilterRow');
+  if (markerFilterRow){
+    markerFilterRow.querySelectorAll('.mfilter-btn[data-mfilter]').forEach(function(btn){
+      var type = btn.getAttribute('data-mfilter');
+      if (type !== 'all') btn.innerHTML = pinIconFor({ type: type });
+    });
+    markerFilterRow.addEventListener('click', function(e){
+      var btn = e.target.closest('.mfilter-btn');
+      if (!btn) return;
+      markerFilter = btn.getAttribute('data-mfilter');
+      markerFilterRow.querySelectorAll('.mfilter-btn').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      renderMarkerList();
+    });
+  }
+  function updateMarkerPinVisibility(){
+    markerGroup.children.forEach(function(obj){
+      var m = markers.find(function(mm){ return mm.id === obj.userData.markerId; });
+      obj.visible = !m || markerFilter === 'all' || m.type === markerFilter;
+    });
+  }
+
   var markersListEl = document.getElementById('markersList');
   var markersChipCount = document.getElementById('markersChipCount');
   function renderMarkerList(){
     if (markersChipCount) markersChipCount.textContent = markers.length;
+    updateMarkerPinVisibility();
     if (!markersListEl) return;
+    var visible = markerFilter === 'all' ? markers : markers.filter(function(m){ return m.type === markerFilter; });
     if (!markers.length){
       markersListEl.innerHTML = '<div class="measure-placeholder">Noch keine Marker gespeichert. Doppelt auf die Karte tippen, um einen zu setzen.</div>';
+      return;
+    }
+    if (!visible.length){
+      markersListEl.innerHTML = '<div class="measure-placeholder">Keine Marker dieses Typs.</div>';
       return;
     }
     function escapeHtml(s){
@@ -1465,7 +1521,7 @@ function initApp(DATA){
         return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
       });
     }
-    markersListEl.innerHTML = markers.slice().reverse().map(function(m){
+    markersListEl.innerHTML = visible.slice().reverse().map(function(m){
       return '<div class="marker-item">' +
         '<span class="marker-dot" style="background:#'+markerColor(m).toString(16).padStart(6,'0')+'"></span>' +
         '<span class="marker-item-text">' +
