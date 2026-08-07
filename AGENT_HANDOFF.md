@@ -920,6 +920,49 @@ distance" too.
 
 - `sw.js` cache bumped to `nms-shell-v8` for this change.
 
+## Zoom on large lakes still felt stuck — camera now follows tapped point — BUILT (2026-08-07)
+
+Follow-up to the "zoom felt capped" fix above. User: "I am still not able to
+really zoom in on the furthest parts of large lakes." Different root cause
+from before — this time it's not `minDistance`, it's that OrbitControls
+pans/zooms around a single fixed `target` (set once at startup to the lake's
+bounding-box center, `(0,-40,0)`) that never moves on its own. OrbitControls'
+own pan implementation scales pan distance by the current camera-to-target
+distance (`panLeft(2*deltaX*targetDistance/clientHeight, ...)` in
+`OrbitControls.js`) — so once you're zoomed in close (which is now much
+easier thanks to the lower `minDistance`), panning becomes proportionally
+tiny. On a long lake like Schweriner Außensee (`dist` ≈ 14000), reaching a
+far shore while zoomed in near the center could take a dozen+ full-screen
+pan gestures. This is a real architectural mismatch, not a tuning issue:
+zoom got easier while the thing you'd need to reach a far point (panning)
+didn't scale with it.
+
+Fixed by making the target follow user intent instead of staying frozen at
+the lake's center: `handlePick()` (the existing single-tap-to-probe-depth
+handler, already computes a raycast hit point `p` and the exaggerated pin
+height `mmPin.position.y`) now also does `targetGoal.set(p.x,
+mmPin.position.y, p.z)`. A new `targetGoal` vector (declared next to
+`defaultTarget`) is separate from `controls.target` itself — the render
+loop lerps toward it each frame (`controls.target.lerp(targetGoal, 0.06)`,
+right before `controls.update()`), so retargeting is a smooth pull, not an
+instant snap. `targetGoal` is kept in sync wherever `controls.target` is
+set explicitly elsewhere (`btnReset`, `btnTop`) so the lerp doesn't fight
+those resets on the next frame.
+
+Net effect: tap anywhere (which already shows that point's depth — no new
+UI, reuses the existing gesture) and the camera's orbit/zoom pivot moves
+there over roughly half a second, so pinch-zooming in afterward actually
+gets you close to *that* spot, not stuck orbiting the lake's static center.
+
+Verified via temporary `window.__debug*` hooks (removed before commit) on
+the largest lake (Schweriner Außensee): set `targetGoal` to a point far
+from center, confirmed `controls.target` visibly converges toward it frame
+over frame, then confirmed a real `WheelEvent` zoom afterward pulls the
+camera close to the *new* target rather than the old center — screenshot
+confirmed a genuine close-up, not the wide overview.
+
+- `sw.js` cache bumped to `nms-shell-v9` for this change.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated
