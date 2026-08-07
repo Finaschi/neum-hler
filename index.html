@@ -688,7 +688,7 @@
   </button>
 </div>
 
-<div id="hint">Ziehen zum Drehen · Scrollen zum Zoomen · Rechte Maustaste zum Verschieben · Doppeltippen für Marker</div>
+<div id="hint">Ziehen zum Verschieben · 2 Finger zum Drehen & Zoomen · Doppeltippen für Marker</div>
 
 <div id="sheet" data-detent="half">
   <div id="sheetHeader">
@@ -1247,6 +1247,16 @@ function initApp(DATA){
   controls.maxDistance = dist*2.2;
   controls.zoomSpeed = 1.4;
   controls.maxPolarAngle = Math.PI*0.49;
+  // OrbitControls' touch default is ONE-finger = rotate, TWO-finger = pinch
+  // zoom + pan — the opposite of what a map app trains people to expect
+  // (drag with one finger to move around, like Google Maps). Swapped so a
+  // single-finger drag pans across the terrain directly; rotating the view
+  // is still available via a two-finger twist alongside pinch-to-zoom.
+  // screenSpacePanning:false keeps that pan sliding along the ground plane
+  // rather than the tilted camera plane, so it reads as "sliding the map"
+  // even while looking at the terrain from an angle.
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+  controls.screenSpacePanning = false;
   controls.update();
 
   var defaultCamPos = camera.position.clone();

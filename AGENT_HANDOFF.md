@@ -963,6 +963,71 @@ confirmed a genuine close-up, not the wide overview.
 
 - `sw.js` cache bumped to `nms-shell-v9` for this change.
 
+## Navigation felt unintuitive — one-finger drag now pans, not rotates — BUILT (2026-08-07)
+
+Follow-up to the "zoom stuck on far parts of large lakes" fix above. User,
+after trying the tap-to-recenter fix: "it is in my opinion not intuitive…
+can't the camera recenter wherever you swipe with your finger? Like in
+Google Maps." Correct diagnosis, and a better fix than the tap-based one.
+
+Root cause: OrbitControls' touch default is `ONE: THREE.TOUCH.ROTATE, TWO:
+THREE.TOUCH.DOLLY_PAN` — a single-finger drag orbits the camera around the
+fixed target (spins the view in place, target never moves), while panning
+only happens via a two-finger gesture. That's backwards from what a map
+app trains people to expect (one-finger drag = move around, like Google
+Maps/Apple Maps). The previous "tap recenters the target" fix (see above)
+was a workaround for this mismatch, not a fix of it.
+
+Fixed by remapping the touch gestures to match map-app convention:
+```
+controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+controls.screenSpacePanning = false;
+```
+Now a single-finger drag pans directly (camera + target translate together,
+following the finger) — `screenSpacePanning:false` keeps that pan sliding
+along the horizontal ground plane rather than the tilted camera plane, so
+it reads as "sliding the map" even while looking at the terrain from an
+angle, rather than drifting up/down with the camera's tilt. Rotating the
+3D view is still available, moved to a two-finger twist (which pinch-zoom
+already shares the same two fingers with, via `DOLLY_ROTATE` — pinch
+distance zooms, the two-finger midpoint moving orbits the view — these
+compose naturally in the same gesture, not a modal switch).
+
+This also resolves the panning-too-slow complaint properly (rather than
+working around it): OrbitControls scales pan distance by camera-to-target
+distance, which is *correct* for a direct one-finger drag-to-pan gesture
+(near zoom → small drag moves you a little, matching the smaller visible
+area; zoomed out → the same drag covers much more ground) — it was only a
+problem when the primary interaction was rotate and reaching a far point
+required jumping through the awkward tap-to-recenter flow instead.
+
+The tap-to-recenter behavior (`handlePick` also sets `targetGoal`, lerped
+each frame — added in the prior fix) is kept as a complementary quick-jump:
+useful for snapping straight to a point without a long drag, and doesn't
+conflict with continuous panning.
+
+Desktop mouse mapping is untouched (left-drag still rotates, right-click
+still pans, scroll still zooms) — that's a standard, expected convention
+for a 3D viewer on desktop, and the "swipe" complaint was specifically
+about touch. Updated the `#hint` pill text to match ("Ziehen zum
+Verschieben · 2 Finger zum Drehen & Zoomen · Doppeltippen für Marker",
+was "Ziehen zum Drehen…" — the old copy was now actively wrong on touch).
+
+Verified via synthetic `TouchEvent`s dispatched directly at the canvas
+(`new Touch(...)` + `new TouchEvent('touchstart'/'touchmove'/'touchend',
+...)`) — Playwright's `page.mouse` drag simulation does **not** exercise
+this path, since OrbitControls listens for native `touchstart`/`touchmove`
+events for touch input, separate from the `pointerdown`/`pointermove` path
+used for mouse (and used by the bottom sheet's own drag handling elsewhere
+in this file) — confirmed via temporary `window.__debug*` hooks (removed
+before commit): a one-finger drag moved camera position AND target by
+comparable amounts (a true pan, not an orbit — target.y stayed exactly
+level, confirming the ground-plane lock), and a two-finger pinch-out
+correctly reduced camera-to-target distance (zoomed in) with the target
+unchanged.
+
+- `sw.js` cache bumped to `nms-shell-v10` for this change.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated
