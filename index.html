@@ -63,7 +63,10 @@
     pointer-events:none;
   }
   #statusRow > *{ pointer-events:auto; }
-  .status-left{ display:flex; align-items:center; gap:8px; }
+  .status-left{
+    display:flex; align-items:center; gap:8px;
+    background:none; border:none; padding:6px 4px; margin:-6px -4px; cursor:pointer;
+  }
   .status-dot{
     width:6px; height:6px; border-radius:50%; flex:none;
     background:var(--color-accent);
@@ -259,16 +262,16 @@
   .btn-sheet-primary:hover{ background:color-mix(in srgb, var(--color-accent) 12%, transparent); }
   .btn-sheet-primary:active{ background:color-mix(in srgb, var(--color-accent) 22%, transparent); }
 
-  /* ---------- settings sheet (secondary sheet: lake list, exaggeration,
-     toggles, legend, map/reset buttons) ---------- */
-  #settingsSheet{
+  /* ---------- overlay sheets: settings (lake list, exaggeration, toggles,
+     legend, map/reset buttons) and weather forecast share this chrome ---------- */
+  .overlay-sheet{
     position:fixed; inset:0; z-index:20;
     display:flex; align-items:flex-end; justify-content:center;
     background:rgba(8,9,14,0); pointer-events:none;
     transition:background .2s ease;
   }
-  #settingsSheet.show{ background:rgba(8,9,14,0.55); pointer-events:auto; }
-  #settingsSheet .sheet-surface{
+  .overlay-sheet.show{ background:rgba(8,9,14,0.55); pointer-events:auto; }
+  .overlay-sheet .sheet-surface{
     position:relative;
     width:100%; max-width:480px; max-height:88vh;
     background:color-mix(in srgb, var(--color-surface) 90%, transparent);
@@ -281,7 +284,7 @@
     transform:translateY(100%);
     transition:transform 320ms cubic-bezier(.32,.72,0,1);
   }
-  #settingsSheet.show .sheet-surface{ transform:translateY(0); }
+  .overlay-sheet.show .sheet-surface{ transform:translateY(0); }
   .settings-grab{ width:34px; height:3px; border-radius:2px; background:rgba(233,233,237,.22); margin:0 auto 16px; }
   .settings-h2{
     font-size:11px; text-transform:uppercase; letter-spacing:1px;
@@ -289,6 +292,37 @@
   }
   .settings-h2:first-of-type{ margin-top:4px; }
   .settings-lake-meta{ font-size:11px; color:var(--ink-dim); margin:-6px 0 13px; }
+
+  /* ---------- weather forecast sheet ---------- */
+  .wx-loading{ font-size:12px; color:var(--ink-dim); padding:4px 0 16px; }
+  .wx-hourly-strip{
+    display:flex; gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch;
+    scroll-snap-type:x proximity; margin:0 -20px 4px; padding:0 20px 6px;
+  }
+  .wx-hour-card{
+    flex:none; scroll-snap-align:start;
+    width:52px; display:flex; flex-direction:column; align-items:center; gap:5px;
+    padding:10px 0; border-radius:14px;
+    background:color-mix(in srgb, var(--color-accent) 7%, transparent);
+  }
+  .wx-hour-time{ font-size:10px; color:var(--ink-dim); font-variant-numeric:tabular-nums; }
+  .wx-hour-icon{ width:19px; height:19px; color:var(--color-accent-300); }
+  .wx-hour-temp{ font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .wx-hour-precip{ font-size:9px; color:var(--color-accent-300); font-variant-numeric:tabular-nums; }
+
+  .wx-daily-list{ display:flex; flex-direction:column; }
+  .wx-day-row{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 0; border-bottom:1px solid rgba(233,233,237,.08);
+    font-size:12px; font-variant-numeric:tabular-nums;
+  }
+  .wx-day-row:last-child{ border-bottom:none; }
+  .wx-day-name{ width:32px; flex:none; color:var(--ink-dim); text-transform:capitalize; }
+  .wx-day-icon{ width:19px; height:19px; flex:none; color:var(--color-accent-300); }
+  .wx-day-precip{ flex:1; color:var(--color-accent-300); }
+  .wx-day-wind{ flex:none; color:var(--ink-dim); width:58px; text-align:right; }
+  .wx-day-temps{ flex:none; width:66px; text-align:right; font-weight:600; }
+  .wx-day-temps .lo{ color:var(--ink-dim); font-weight:400; }
 
   .row{ margin-bottom:13px; }
   .row:last-child{ margin-bottom:0; }
@@ -679,10 +713,10 @@
 <div id="scene"></div>
 
 <div id="statusRow">
-  <div class="status-left">
+  <button class="status-left" id="statusLeft" type="button" aria-label="Wettervorhersage öffnen">
     <span class="status-dot off" id="statusDot"></span>
     <span class="status-text" id="statusText">GPS AUS</span>
-  </div>
+  </button>
   <button id="settingsBtn" type="button" aria-label="Einstellungen öffnen">
     <svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="rgba(233,233,237,.8)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"><circle cx="128" cy="128" r="34"/><path d="M197 138.6a72.9 72.9 0 000-21.2l19.6-15.3a8 8 0 002-10.3l-19.2-33.2a8 8 0 00-9.7-3.6l-23 9.3a73 73 0 00-18.3-10.6l-3.5-24.5a8 8 0 00-7.9-6.8h-38.4a8 8 0 00-7.9 6.8l-3.5 24.5a73 73 0 00-18.3 10.6l-23-9.3a8 8 0 00-9.7 3.6L34.4 91.8a8 8 0 002 10.3L56 117.4a72.9 72.9 0 000 21.2l-19.6 15.3a8 8 0 00-2 10.3l19.2 33.2a8 8 0 009.7 3.6l23-9.3a73 73 0 0018.3 10.6l3.5 24.5a8 8 0 007.9 6.8h38.4a8 8 0 007.9-6.8l3.5-24.5a73 73 0 0018.3-10.6l23 9.3a8 8 0 009.7-3.6l19.2-33.2a8 8 0 00-2-10.3z"/></svg>
   </button>
@@ -722,7 +756,7 @@
   </div>
 </div>
 
-<div id="settingsSheet">
+<div id="settingsSheet" class="overlay-sheet">
   <div class="sheet-surface">
     <div class="settings-grab"></div>
     <button class="panel-close" id="settingsClose" aria-label="Schließen">✕</button>
@@ -769,6 +803,19 @@
     <div id="gradientBar"></div>
     <div class="legend-scale" id="legendScale"><span>0 m</span><span>-4</span><span>-8</span><span>-12</span><span>-17,1 m</span></div>
     <div class="legend-source" id="legendSource">Quelle Tiefendaten: Ministerium für Landwirtschaft, Umwelt und Verbraucherschutz M-V, Seenreferat (1998). 3D-Rekonstruktion aus der Konturkarte, horizontale Auflösung ≈ 20 m/Zelle.</div>
+  </div>
+</div>
+
+<div id="weatherSheet" class="overlay-sheet">
+  <div class="sheet-surface">
+    <div class="settings-grab"></div>
+    <button class="panel-close" id="weatherClose" aria-label="Schließen">✕</button>
+    <h2 class="settings-h2">Wettervorhersage</h2>
+    <div class="settings-lake-meta" id="wxLakeMeta"></div>
+    <div class="wx-loading" id="wxLoading">Lädt…</div>
+    <div class="wx-hourly-strip" id="wxHourlyStrip"></div>
+    <h2 class="settings-h2">5-Tage-Ausblick</h2>
+    <div class="wx-daily-list" id="wxDailyList"></div>
   </div>
 </div>
 
@@ -2300,31 +2347,134 @@ function initApp(DATA){
       '. 3D-Rekonstruktion aus amtlichen Tiefenlinien, Zellgröße ≈ ' + CELL.toFixed(1) + ' m.';
   }
 
-  // ---------- current weather (temperature + wind) at this lake ----------
+  // ---------- weather: current conditions (status row) + forecast (tap-to-open sheet) ----------
   // Open-Meteo, not wetteronline.de — no key, no cost, CORS-open, works
   // straight from a static GitHub Pages site same as the OSM tiles do.
-  // Current conditions only, no forecast, matching what was actually asked
-  // for; re-fetched only on load/lake-switch, not polled.
+  // Re-fetched only on load/lake-switch, not polled.
   var COMPASS_16 = ['N','NNO','NO','ONO','O','OSO','SO','SSO','S','SSW','SW','WSW','W','WNW','NW','NNW'];
   function compass16(deg){
     return COMPASS_16[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
   }
+  // Flat line-icons (stroke, not fill, to match #settingsBtn's gear icon)
+  // for the handful of WMO weather codes Open-Meteo returns that are worth
+  // distinguishing at forecast-card size — not attempting full fidelity to
+  // all ~30 WMO codes, just enough to read as "sun/cloud/rain/snow/storm".
+  var WX_ICONS = {
+    sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.4M12 19.6V22M4.2 12H2M22 12h-2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/>',
+    cloudSun: '<path d="M12 3.5v2M6.3 6.3l1.4 1.4M17.7 6.3l-1.4 1.4"/><circle cx="12" cy="10" r="2.6"/><path d="M7 20h9.5a3.5 3.5 0 000-7 5 5 0 00-9.6-1.6A4 4 0 007 20z"/>',
+    cloud: '<path d="M6.5 19h10.5a3.5 3.5 0 000-7 5.5 5.5 0 00-10.6-1.7A4 4 0 006.5 19z"/>',
+    fog: '<path d="M6.5 15.5h10.5a3.5 3.5 0 000-7 5.5 5.5 0 00-10.6-1.7A4 4 0 006.5 15.5z"/><path d="M4 19h16M6 22h12"/>',
+    rain: '<path d="M6.5 13.5h10.5a3.5 3.5 0 000-7 5.5 5.5 0 00-10.6-1.7A4 4 0 006.5 13.5z"/><path d="M8 17l-1.3 3M12 17l-1.3 3M16 17l-1.3 3"/>',
+    snow: '<path d="M6.5 13.5h10.5a3.5 3.5 0 000-7 5.5 5.5 0 00-10.6-1.7A4 4 0 006.5 13.5z"/><path d="M8 17.5v4M6 19.5h4M12 17.5v4M10 19.5h4M16 17.5v4M14 19.5h4"/>',
+    storm: '<path d="M6.5 13h10.5a3.5 3.5 0 000-7 5.5 5.5 0 00-10.6-1.7A4 4 0 006.5 13z"/><path d="M13 13l-3 5h3l-2 4" stroke-linejoin="round"/>'
+  };
+  function wxIconSvg(key){
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">' +
+      (WX_ICONS[key] || WX_ICONS.cloud) + '</svg>';
+  }
+  var WX_CODE_INFO = {
+    0:['Klar','sun'], 1:['Leicht bewölkt','cloudSun'], 2:['Wolkig','cloudSun'], 3:['Bedeckt','cloud'],
+    45:['Nebel','fog'], 48:['Nebel','fog'],
+    51:['Nieselregen','rain'], 53:['Nieselregen','rain'], 55:['Nieselregen','rain'],
+    56:['Gefr. Niesel','rain'], 57:['Gefr. Niesel','rain'],
+    61:['Regen','rain'], 63:['Regen','rain'], 65:['Starker Regen','rain'],
+    66:['Gefr. Regen','rain'], 67:['Gefr. Regen','rain'],
+    71:['Schnee','snow'], 73:['Schnee','snow'], 75:['Starker Schnee','snow'], 77:['Schneegriesel','snow'],
+    80:['Schauer','rain'], 81:['Schauer','rain'], 82:['Starker Schauer','rain'],
+    85:['Schneeschauer','snow'], 86:['Schneeschauer','snow'],
+    95:['Gewitter','storm'], 96:['Gewitter mit Hagel','storm'], 99:['Gewitter mit Hagel','storm']
+  };
+  function wxInfoForCode(code){ return WX_CODE_INFO[code] || ['—','cloud']; }
+
+  var lastForecast = null; // {hourly, daily} — set by loadWeather(), rendered lazily into #weatherSheet
   function loadWeather(){
     var lakeMeta = LAKES.filter(function(l){ return l.id === DATA.id; })[0];
     if (!lakeMeta || lakeMeta.lat == null || lakeMeta.lon == null) return;
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lakeMeta.lat +
       '&longitude=' + lakeMeta.lon +
-      '&current=temperature_2m,wind_speed_10m,wind_direction_10m&wind_speed_unit=kmh&timezone=auto';
+      '&current=temperature_2m,wind_speed_10m,wind_direction_10m' +
+      '&hourly=temperature_2m,weather_code,precipitation_probability' +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_probability_max' +
+      '&wind_speed_unit=kmh&timezone=auto&forecast_days=5';
     fetch(url).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('http '+r.status)); })
       .then(function(data){
         var c = data.current;
-        if (!c) return;
-        lastWeather = { temp: c.temperature_2m, wind: c.wind_speed_10m, dir: compass16(c.wind_direction_10m) };
+        if (c) lastWeather = { temp: c.temperature_2m, wind: c.wind_speed_10m, dir: compass16(c.wind_direction_10m) };
         updateStatusText();
+        if (data.hourly && data.daily){
+          lastForecast = { hourly: data.hourly, daily: data.daily };
+          renderWeatherSheet();
+        }
       })
       .catch(function(){ /* offline or blocked — status row just shows GPS state alone */ });
   }
   loadWeather();
+
+  // ---------- forecast sheet (opened by tapping the status row) ----------
+  var weatherSheet = document.getElementById('weatherSheet');
+  var wxHourlyStrip = document.getElementById('wxHourlyStrip');
+  var wxDailyList = document.getElementById('wxDailyList');
+  var wxLoading = document.getElementById('wxLoading');
+  var wxLakeMeta = document.getElementById('wxLakeMeta');
+
+  function renderWeatherSheet(){
+    if (!weatherSheet || !lastForecast) return;
+    if (wxLoading) wxLoading.hidden = true;
+    if (wxLakeMeta) wxLakeMeta.textContent = DATA.name || '';
+
+    var hourly = lastForecast.hourly;
+    var now = new Date();
+    var startIdx = 0;
+    for (var i = 0; i < hourly.time.length; i++){
+      if (new Date(hourly.time[i]) >= now){ startIdx = i; break; }
+    }
+    if (wxHourlyStrip){
+      wxHourlyStrip.innerHTML = hourly.time.slice(startIdx, startIdx + 24).map(function(t, i){
+        var idx = startIdx + i;
+        var d = new Date(t);
+        var info = wxInfoForCode(hourly.weather_code[idx]);
+        var precip = hourly.precipitation_probability ? hourly.precipitation_probability[idx] : 0;
+        return '<div class="wx-hour-card">' +
+          '<div class="wx-hour-time">' + (i === 0 ? 'Jetzt' : d.toLocaleTimeString('de-DE',{hour:'2-digit'})) + '</div>' +
+          '<div class="wx-hour-icon" title="' + info[0] + '">' + wxIconSvg(info[1]) + '</div>' +
+          '<div class="wx-hour-temp">' + Math.round(hourly.temperature_2m[idx]) + '°</div>' +
+          (precip >= 20 ? '<div class="wx-hour-precip">' + precip + '%</div>' : '') +
+          '</div>';
+      }).join('');
+    }
+
+    var daily = lastForecast.daily;
+    if (wxDailyList){
+      wxDailyList.innerHTML = daily.time.map(function(t, idx){
+        var d = new Date(t + 'T12:00');
+        var dayName = idx === 0 ? 'Heute' : d.toLocaleDateString('de-DE', {weekday:'short'});
+        var info = wxInfoForCode(daily.weather_code[idx]);
+        var precip = daily.precipitation_probability_max ? daily.precipitation_probability_max[idx] : 0;
+        return '<div class="wx-day-row">' +
+          '<div class="wx-day-name">' + dayName + '</div>' +
+          '<div class="wx-day-icon" title="' + info[0] + '">' + wxIconSvg(info[1]) + '</div>' +
+          '<div class="wx-day-precip">' + (precip >= 20 ? precip + '%' : '') + '</div>' +
+          '<div class="wx-day-wind">' + Math.round(daily.wind_speed_10m_max[idx]) + ' km/h</div>' +
+          '<div class="wx-day-temps"><span class="lo">' + Math.round(daily.temperature_2m_min[idx]) + '°</span> / ' +
+            Math.round(daily.temperature_2m_max[idx]) + '°</div>' +
+          '</div>';
+      }).join('');
+    }
+  }
+
+  function openWeatherSheet(){
+    if (!weatherSheet) return;
+    weatherSheet.classList.add('show');
+    if (!lastForecast && wxLoading) wxLoading.hidden = false;
+  }
+  function closeWeatherSheet(){ if (weatherSheet) weatherSheet.classList.remove('show'); }
+  var statusLeftBtn = document.getElementById('statusLeft');
+  var weatherClose = document.getElementById('weatherClose');
+  if (statusLeftBtn) statusLeftBtn.addEventListener('click', openWeatherSheet);
+  if (weatherClose) weatherClose.addEventListener('click', closeWeatherSheet);
+  if (weatherSheet) weatherSheet.addEventListener('click', function(e){
+    if (e.target === weatherSheet) closeWeatherSheet();
+  });
 
   // iOS "Add to Home Screen" apps are often resumed from a frozen memory
   // snapshot instead of a real reload/navigation, so code that only runs

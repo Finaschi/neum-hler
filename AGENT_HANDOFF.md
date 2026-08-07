@@ -1081,6 +1081,83 @@ recenter behavior itself still works.
 
 - `sw.js` cache bumped to `nms-shell-v11` for this change.
 
+## Weather forecast (hourly + 5-day) — BUILT (2026-08-07)
+
+User, after comparing the app favorably to Windy/FishingBuddy/Alle Angeln:
+"I think weather forecasting would be nice for now." The app already had
+*current* conditions only (temp/wind in the status row, see the "Current
+weather" section above) — this adds an actual forecast. Scoped via two
+quick questions before building: range = "both, compact" (today's hourly
+strip + a short daily outlook), placement = tapping the existing status
+row (not a new UI chip).
+
+### Data
+
+Extended the existing `loadWeather()` Open-Meteo call (same endpoint, same
+no-key/CORS-open/static-site-friendly reasoning as before) to also request
+`hourly=temperature_2m,weather_code,precipitation_probability` and
+`daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_probability_max`
+with `forecast_days=5`. The `current` fields are untouched — the status
+row's existing behavior is unchanged, this is purely additive. Response is
+stored in a new `lastForecast = {hourly, daily}` var (separate from
+`lastWeather`, which stays exactly what the status row reads).
+
+### UI: tap the status row to open a forecast sheet
+
+`.status-left` (the "GPS AUS · 19° 14 SW" pill at the top) is now a
+`<button>` instead of a plain `<div>` (reset styles added so it looks
+identical) that opens a new `#weatherSheet` overlay — same bottom-sheet
+chrome as `#settingsSheet` (grab handle, close ✕, backdrop-tap-to-close).
+
+Rather than duplicate that chrome's CSS, refactored the `#settingsSheet`-
+scoped rules (`position:fixed`, backdrop, `.sheet-surface` slide-up
+transform, etc.) into a shared `.overlay-sheet` class that both
+`#settingsSheet` and `#weatherSheet` now carry — `#settingsSheet`'s HTML
+tag picked up `class="overlay-sheet"` alongside its existing ID, no
+behavior change there, just de-duplicated ~20 lines of CSS.
+
+Sheet contents:
+- **Hourly strip**: horizontally scrollable row (`scroll-snap-type:x`) of
+  the next 24 hours starting from "now" — found by scanning
+  `hourly.time` for the first entry `>= new Date()` (Open-Meteo's
+  `timezone=auto` returns naive local ISO strings, so this assumes the
+  browser's local time matches the lake's — fine in practice, this app is
+  used by local anglers on MV lakes). Each card: time (first one reads
+  "Jetzt" instead of a time), icon, temp, and a precip-% line that only
+  appears when ≥20% (keeps low-probability noise off the cards).
+- **5-day outlook**: one row per day (`daily.time`, 5 entries starting
+  today), day name via `toLocaleDateString('de-DE',{weekday:'short'})`
+  ("Heute" for day 0 instead of the weekday name), icon, precip% (same
+  ≥20% gate), max wind, and a `low° / high°` pair.
+
+### Weather icons
+
+Small set of flat stroke-only SVGs (`WX_ICONS`: sun, cloudSun, cloud, fog,
+rain, snow, storm) in the same 24×24 viewBox convention as the rest of the
+app, styled like the gear icon (`fill:none; stroke:currentColor`) rather
+than the filled-icon convention `ICONS` (marker pins) use — line icons
+read better at the small forecast-card size than filled shapes would.
+`WX_CODE_INFO` maps the WMO weather codes Open-Meteo returns to one of
+these 7 + a German label (not attempting full fidelity to all ~30 WMO
+codes — enough to distinguish sun/cloud/rain/snow/storm/fog at a glance).
+Verified all 7 render distinctly via an isolated close-up render (not just
+at real card size, where a lightning bolt and rain streaks can look
+similar at a glance) before trusting the mapping.
+
+### Verified
+
+- Full render with a mocked 5-day/120-hour Open-Meteo response: 24 hourly
+  cards + 5 daily rows render, first hourly card correctly reads "Jetzt",
+  lake name shows in the sheet subtitle.
+- Backdrop-tap-to-close and the ✕ button both work.
+- Tapping the status row before the fetch resolves (or when it fails
+  entirely — tested via an aborted request) opens the sheet showing
+  "Lädt…" instead of a blank/broken panel, no JS errors.
+- `#settingsSheet` still opens/closes/slides correctly after the
+  `.overlay-sheet` CSS refactor (shared chrome, not a regression).
+
+- `sw.js` cache bumped to `nms-shell-v12` for this change.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated
