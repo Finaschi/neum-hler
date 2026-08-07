@@ -1028,6 +1028,59 @@ unchanged.
 
 - `sw.js` cache bumped to `nms-shell-v10` for this change.
 
+## Controls felt "slow and twitchy" after the pan fix — per-frame target pull was fighting live drags — BUILT (2026-08-07)
+
+Immediate follow-up to the one-finger-drag-pans fix above. User: "Controls
+are better now but they feel extremely slow and twitchy, the version
+before was much smoother." Real regression, introduced by the earlier
+tap-to-recenter fix (from two fixes ago) once combined with pan becoming
+the primary one-finger gesture.
+
+Root cause: the render loop unconditionally ran
+`controls.target.lerp(targetGoal, 0.06)` **every frame**, pulling
+`controls.target` 6% of the way toward a fixed `targetGoal` (last tapped
+point, or the default center if nothing had been tapped yet). That was
+harmless back when one-finger drag rotated the camera (target never
+moved on its own). But now that one-finger drag pans — which moves
+`controls.target` directly via OrbitControls' own internal pan logic,
+applied inside `controls.update()` — the two were fighting every single
+frame: your drag moves the target one way, then before the next frame
+renders, the unconditional lerp yanks it partway back toward the stale
+`targetGoal`. That produces exactly a laggy, rubber-banded feel — each
+pan increment partially undone, over and over.
+
+Fixed by replacing the always-on per-frame pull with a short, one-shot,
+cancelable animation:
+- `handlePick()` now calls `startRetarget(new THREE.Vector3(...))`, which
+  records `{from: controls.target.clone(), to, start: performance.now(),
+  duration: 450}` into a `retargetAnim` var — nothing per-frame yet.
+- `animate()` only touches `controls.target` when `retargetAnim` is set,
+  smoothstep-easing from `from` to `to` over 450ms, then clearing itself.
+  When no tap has just happened, `controls.target` is left completely
+  alone every frame — so panning, rotating, and zooming are 100%
+  unimpeded, exactly as smooth as before the retarget feature existed.
+- `renderer.domElement`'s existing `pointerdown` handler (already there
+  for tap-vs-drag detection) now also does `retargetAnim = null;` — so if
+  the user starts a new drag while a recenter animation is still playing
+  (e.g. tap immediately followed by a swipe), the animation is cancelled
+  instantly rather than fighting the fresh input for its remaining
+  duration. Confirmed via test: a drag started right after a tap shows
+  `retargetAnim` never engaging (target stays exactly where the drag
+  left it, zero direction reversals across 20 sampled drag steps).
+- `targetGoal` is gone entirely — `btnReset`/`btnTop` now just set
+  `retargetAnim = null` before setting `controls.target` directly (no
+  separate goal vector to keep in sync anymore).
+
+Verified two scenarios via synthetic pointer/touch events + temporary
+`window.__debug*` hooks (removed before commit): (1) tap immediately
+followed by a drag — target moves monotonically in the drag direction
+with zero reversals, confirming the animation never got a chance to
+fight it; (2) a tap with no follow-up interaction — target still smoothly
+animates to the tapped point over ~450ms, confirming the quick-jump
+recenter behavior itself still works.
+
+- `sw.js` cache bumped to `nms-shell-v11` for this change.
+
 ## Style/scope notes specific to this project
 
 - Keep German UI copy; rewording for clarity is fine, don't change stated

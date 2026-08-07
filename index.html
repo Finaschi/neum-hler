@@ -1261,14 +1261,17 @@ function initApp(DATA){
 
   var defaultCamPos = camera.position.clone();
   var defaultTarget = controls.target.clone();
-  // OrbitControls pans/zooms around a single fixed target; on a long lake
-  // that target starts at the bounding-box center, so once zoomed in close
-  // (small camera-to-target distance) panning out toward a far shore is
-  // extremely slow (pan distance is proportional to that distance). Tapping
-  // a point to probe its depth (handlePick) also re-centers the orbit
-  // target there, smoothly, so zooming stays "attached" to wherever the
-  // user is actually looking instead of the lake's static center.
-  var targetGoal = controls.target.clone();
+  // Tapping a point to probe its depth (handlePick) also re-centers the
+  // orbit target there, as a short one-shot animation (NOT a per-frame pull
+  // toward a fixed goal — that fought live one-finger panning every single
+  // frame, since panning moves controls.target itself via OrbitControls'
+  // own pan logic, making drags feel laggy/rubber-banded). Cancelled
+  // immediately on the next pointerdown so starting a new drag mid-animation
+  // never fights the user's input.
+  var retargetAnim = null; // {from:Vector3, to:Vector3, start:number, duration:number}
+  function startRetarget(to){
+    retargetAnim = { from: controls.target.clone(), to: to, start: performance.now(), duration: 450 };
+  }
 
   window.addEventListener('resize', function(){
     camera.aspect = window.innerWidth/window.innerHeight;
@@ -1352,7 +1355,7 @@ function initApp(DATA){
     retriggerDrop(mmPin);
 
     renderDepthValue(e);
-    targetGoal.set(p.x, mmPin.position.y, p.z);
+    startRetarget(new THREE.Vector3(p.x, mmPin.position.y, p.z));
   }
 
   var downPos = null;
@@ -1376,6 +1379,7 @@ function initApp(DATA){
   }
   renderer.domElement.addEventListener('pointerdown', function(ev){
     downPos = {x:ev.clientX, y:ev.clientY};
+    retargetAnim = null; // a fresh interaction always wins over an in-flight recenter
   });
   renderer.domElement.addEventListener('pointerup', function(ev){
     if (!downPos) return;
@@ -2354,16 +2358,16 @@ function initApp(DATA){
   });
 
   document.getElementById('btnReset').addEventListener('click', function(){
+    retargetAnim = null;
     camera.position.copy(defaultCamPos);
     controls.target.copy(defaultTarget);
-    targetGoal.copy(defaultTarget);
     exagSlider.value = 3; EXAG = 3; exagVal.textContent = '3×'; applyExaggeration();
     controls.update();
   });
   document.getElementById('btnTop').addEventListener('click', function(){
+    retargetAnim = null;
     camera.position.set(0.001*dist, 1.35*dist, 0.001*dist);
     controls.target.set(0,-40,0);
-    targetGoal.set(0,-40,0);
     controls.update();
   });
 
@@ -2386,7 +2390,16 @@ function initApp(DATA){
   // ---------- render loop ----------
   function animate(){
     requestAnimationFrame(animate);
-    controls.target.lerp(targetGoal, 0.06);
+    if (retargetAnim){
+      var t = (performance.now() - retargetAnim.start) / retargetAnim.duration;
+      if (t >= 1){
+        controls.target.copy(retargetAnim.to);
+        retargetAnim = null;
+      } else {
+        var eased = t*t*(3-2*t); // smoothstep
+        controls.target.lerpVectors(retargetAnim.from, retargetAnim.to, eased);
+      }
+    }
     controls.update();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);

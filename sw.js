@@ -2,7 +2,7 @@
 // Keeps the app usable with a weak/absent signal out on the water once it
 // has been opened at least once. Bump CACHE on any deploy that must
 // invalidate old clients.
-const CACHE = 'nms-shell-v10';
+const CACHE = 'nms-shell-v11';
 const SHELL = [
   './',
   './index.html',
